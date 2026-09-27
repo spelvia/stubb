@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+printf '%s\n' 'Checking Rust formatting...'
+if command -v rustup >/dev/null 2>&1; then
+    rustfmt_executable=$(rustup which rustfmt)
+    cargo_fmt_executable=$(rustup which cargo-fmt)
+    RUSTFMT="$rustfmt_executable" "$cargo_fmt_executable" fmt --all -- --check
+else
+    cargo fmt --all -- --check
+fi
+
+printf '%s\n' 'Running Clippy...'
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

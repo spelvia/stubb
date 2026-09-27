@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+message_file=${1:?Git must provide the commit message file}
+subject=$(sed -n '1p' "$message_file")
+
+if ! printf '%s\n' "$subject" | grep -Eq '^[a-z][a-z0-9-]*(\([^()]+\))?!?: [^[:space:]].*$'; then
+    cat >&2 <<'EOF'
+Commit subject must follow Conventional Commits:
+
+  <type>[optional scope][!]: <description>
+
+Examples:
+  feat: add session restore
+  fix(acp): handle a closed connection
+  feat(api)!: replace the session constructor
+EOF
+    exit 1
+fi

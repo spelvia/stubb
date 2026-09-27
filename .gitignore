@@ -1,0 +1,4 @@
+/target/
+/.agents/
+**/*.rs.bk
+.DS_Store
