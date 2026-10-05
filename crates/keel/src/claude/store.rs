@@ -7,12 +7,12 @@
 //! and undocumented, so it is parsed tolerantly: unknown entries are skipped.
 
 use std::fs;
-use std::io::{self, BufRead, BufReader};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use serde_json::Value;
 
+use crate::files::{modified_secs, subdirectories, timestamp_millis};
 use crate::session;
 
 /// Claude Code shortens longer directory names and adds a hash suffix.
@@ -100,16 +100,6 @@ impl Store {
     }
 }
 
-/// Every JSON line of a transcript; unreadable lines are skipped.
-pub(super) fn read_entries(path: &Path) -> io::Result<Vec<Value>> {
-    let reader = BufReader::new(fs::File::open(path)?);
-    Ok(reader
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str(&line).ok())
-        .collect())
-}
-
 pub(super) fn summary(file: &SessionFile, entries: &[Value]) -> session::Summary {
     let mut preview = None;
     let mut custom_title = None;
@@ -180,53 +170,11 @@ fn first_text(content: &Value) -> Option<String> {
     }
 }
 
-/// Milliseconds since the Unix epoch for an RFC 3339 UTC timestamp such as
-/// `2026-10-01T18:00:43.687Z`.
-pub(super) fn timestamp_millis(text: &str) -> Option<i64> {
-    let (date, time) = text.strip_suffix('Z')?.split_once('T')?;
-    let mut date = date.splitn(3, '-').map(|part| part.parse::<i64>().ok());
-    let (year, month, day) = (date.next()??, date.next()??, date.next()??);
-    let (clock, fraction) = time.split_once('.').unwrap_or((time, "0"));
-    let mut clock = clock.splitn(3, ':').map(|part| part.parse::<i64>().ok());
-    let (hour, minute, second) = (clock.next()??, clock.next()??, clock.next()??);
-    let millis: i64 = format!("{fraction:0<3}")[..3].parse().ok()?;
-
-    // Days since the epoch for a proleptic Gregorian date (Howard Hinnant).
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-
-    Some(((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis)
-}
-
 fn encode(cwd: &Path) -> String {
     cwd.to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
-}
-
-fn subdirectories(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    match fs::read_dir(dir) {
-        Ok(entries) => Ok(entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error),
-    }
-}
-
-fn modified_secs(path: &Path) -> i64 {
-    fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |elapsed| elapsed.as_secs() as i64)
 }
 
 #[cfg(test)]
@@ -242,16 +190,6 @@ mod tests {
             "-mnt-data-spelvia-keel"
         );
         assert_eq!(encode(Path::new("/tmp/keel_test.ws")), "-tmp-keel-test-ws");
-    }
-
-    #[test]
-    fn parses_timestamps() {
-        assert_eq!(timestamp_millis("1970-01-01T00:00:00.000Z"), Some(0));
-        assert_eq!(
-            timestamp_millis("2026-10-01T18:00:43.687Z"),
-            Some(1_790_877_643_687)
-        );
-        assert_eq!(timestamp_millis("not a time"), None);
     }
 
     #[test]

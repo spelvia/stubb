@@ -15,13 +15,14 @@ mod tools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::sync::broadcast;
 
 use crate::catalog::{self, Catalog, FastMode, ProviderInfo};
+use crate::files::{self, blocking, cursor_offset, now};
 use crate::provider::BoxFuture;
 use crate::session::{self, Session};
 use crate::{Error, Provider, Result, turn};
@@ -143,7 +144,7 @@ impl Claude {
             let files = store.list(query.cwd.as_deref())?;
             let page = files.iter().skip(offset).take(limit);
             let sessions = page
-                .map(|file| Ok(store::summary(file, &store::read_entries(&file.path)?)))
+                .map(|file| Ok(store::summary(file, &files::read_entries(&file.path)?)))
                 .collect::<std::io::Result<Vec<_>>>()?;
             let next = offset + sessions.len();
             Ok(session::Page {
@@ -286,7 +287,7 @@ impl Claude {
             let Some(file) = store.find(&id)? else {
                 return Err(Error::SessionNotFound { id });
             };
-            let entries = store::read_entries(&file.path)?;
+            let entries = files::read_entries(&file.path)?;
             Ok((file, entries))
         })
         .await
@@ -469,26 +470,4 @@ impl Provider for Claude {
     fn shutdown(&self) -> BoxFuture<'_, ()> {
         Box::pin(Claude::shutdown(self))
     }
-}
-
-/// Runs file-system work off the async runtime.
-async fn blocking<T, F>(work: F) -> Result<T>
-where
-    F: FnOnce() -> Result<T> + Send + 'static,
-    T: Send + 'static,
-{
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| Error::Io(std::io::Error::other(error)))?
-}
-
-fn cursor_offset(cursor: Option<&str>) -> usize {
-    cursor.and_then(|cursor| cursor.parse().ok()).unwrap_or(0)
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or_default()
 }

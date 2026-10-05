@@ -18,6 +18,7 @@ pub mod catalog;
 pub mod claude;
 pub mod codex;
 mod error;
+mod files;
 pub mod provider;
 mod rpc;
 pub mod session;

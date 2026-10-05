@@ -8,8 +8,9 @@
 
 use serde_json::Value;
 
-use super::store::{is_main, timestamp_millis};
+use super::store::is_main;
 use super::tools;
+use crate::files::timestamp_millis;
 use crate::turn::{self, Item, ToolCall, ToolStatus, UserContent};
 
 pub(super) fn turns(entries: &[Value]) -> Vec<turn::Turn> {
