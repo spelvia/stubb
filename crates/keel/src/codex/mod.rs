@@ -8,6 +8,8 @@
 mod connection;
 mod events;
 mod history;
+#[cfg(test)]
+mod observation_tests;
 mod types;
 
 use std::collections::HashMap;

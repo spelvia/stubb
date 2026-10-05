@@ -1,0 +1,903 @@
+{
+  "capture": {
+    "codexVersion": "0.159.0",
+    "model": "gpt-6-luna",
+    "description": "Selected live keel-tester traffic; native IDs and cwd replaced. Threads read after completion. Stop responses are direct native probe controls, not implemented Keel task APIs."
+  },
+  "initialize": {
+    "capabilities": {
+      "experimentalApi": true
+    },
+    "clientInfo": {
+      "name": "keel",
+      "title": "Keel",
+      "version": "0.1.0"
+    }
+  },
+  "threads": [
+    {
+      "id": "root",
+      "name": null,
+      "preview": "Reply with exactly: ok",
+      "cwd": "/fixture/workspace",
+      "model": "gpt-6-luna",
+      "reasoningEffort": "medium",
+      "status": {
+        "type": "notLoaded"
+      },
+      "createdAt": 1791207114,
+      "updatedAt": 1791207242,
+      "source": "vscode",
+      "parentThreadId": null,
+      "agentNickname": null,
+      "agentRole": null
+    },
+    {
+      "id": "child",
+      "name": null,
+      "preview": "",
+      "cwd": "/fixture/workspace",
+      "model": "gpt-6-luna",
+      "reasoningEffort": "medium",
+      "status": {
+        "type": "notLoaded"
+      },
+      "createdAt": 1791207201,
+      "updatedAt": 1791207216,
+      "source": {
+        "subAgent": {
+          "thread_spawn": {
+            "parent_thread_id": "root",
+            "depth": 1,
+            "agent_path": "/root/nested_request",
+            "agent_nickname": "Pauli",
+            "agent_role": null
+          }
+        }
+      },
+      "parentThreadId": "root",
+      "agentNickname": "Pauli",
+      "agentRole": null
+    },
+    {
+      "id": "grandchild",
+      "name": null,
+      "preview": "",
+      "cwd": "/fixture/workspace",
+      "model": "gpt-6-luna",
+      "reasoningEffort": "medium",
+      "status": {
+        "type": "notLoaded"
+      },
+      "createdAt": 1791207206,
+      "updatedAt": 1791207213,
+      "source": {
+        "subAgent": {
+          "thread_spawn": {
+            "parent_thread_id": "child",
+            "depth": 2,
+            "agent_path": "/root/nested_request/nested_reply",
+            "agent_nickname": "Archimedes",
+            "agent_role": null
+          }
+        }
+      },
+      "parentThreadId": "child",
+      "agentNickname": "Archimedes",
+      "agentRole": null
+    }
+  ],
+  "notifications": [
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "root",
+        "turn": {
+          "id": "root-turn",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1791207199,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1791207199377
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "captured-id-7",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Ask a subagent using gpt-6-luna to ask its own subagent using gpt-6-luna to reply: nested-ok. Report the result.",
+              "text_elements": []
+            }
+          ]
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207199413
+      },
+      "emittedAtMs": 1791207199413
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "captured-id-7",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Ask a subagent using gpt-6-luna to ask its own subagent using gpt-6-luna to reply: nested-ok. Report the result.",
+              "text_elements": []
+            }
+          ]
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207199413
+      },
+      "emittedAtMs": 1791207199414
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-8",
+          "kind": "started",
+          "agentThreadId": "child",
+          "agentPath": "/root/nested_request"
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207201788
+      },
+      "emittedAtMs": 1791207201788
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-8",
+          "kind": "started",
+          "agentThreadId": "child",
+          "agentPath": "/root/nested_request"
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207201788
+      },
+      "emittedAtMs": 1791207201789
+    },
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "child",
+        "turn": {
+          "id": "captured-id-9",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1791207201,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1791207201792
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-10",
+          "tool": "wait",
+          "status": "inProgress",
+          "senderThreadId": "root",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207203581
+      },
+      "emittedAtMs": 1791207203581
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "captured-id-11",
+          "summary": [],
+          "content": []
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207204822
+      },
+      "emittedAtMs": 1791207204822
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "captured-id-11",
+          "summary": [],
+          "content": []
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207205743
+      },
+      "emittedAtMs": 1791207205744
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-12",
+          "kind": "started",
+          "agentThreadId": "grandchild",
+          "agentPath": "/root/nested_request/nested_reply"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207206444
+      },
+      "emittedAtMs": 1791207206444
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-12",
+          "kind": "started",
+          "agentThreadId": "grandchild",
+          "agentPath": "/root/nested_request/nested_reply"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207206444
+      },
+      "emittedAtMs": 1791207206446
+    },
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "grandchild",
+        "turn": {
+          "id": "captured-id-13",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1791207206,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1791207206448
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-14",
+          "tool": "wait",
+          "status": "inProgress",
+          "senderThreadId": "child",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207208099
+      },
+      "emittedAtMs": 1791207208099
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-15",
+          "text": "",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "grandchild",
+        "turnId": "captured-id-13",
+        "startedAtMs": 1791207212546
+      },
+      "emittedAtMs": 1791207212546
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "grandchild",
+        "turnId": "captured-id-13",
+        "itemId": "captured-id-15",
+        "delta": "nested"
+      },
+      "emittedAtMs": 1791207212578
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "grandchild",
+        "turnId": "captured-id-13",
+        "itemId": "captured-id-15",
+        "delta": "-ok"
+      },
+      "emittedAtMs": 1791207212631
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-15",
+          "text": "nested-ok",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "grandchild",
+        "turnId": "captured-id-13",
+        "completedAtMs": 1791207213714
+      },
+      "emittedAtMs": 1791207213716
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "grandchild",
+        "turn": {
+          "id": "captured-id-13",
+          "items": [
+            {
+              "type": "agentMessage",
+              "id": "captured-id-15",
+              "text": "nested-ok",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null
+            }
+          ],
+          "itemsView": "summary",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1791207206,
+          "completedAt": 1791207213,
+          "durationMs": 7285
+        }
+      },
+      "emittedAtMs": 1791207213732
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-16",
+          "kind": "completed",
+          "agentThreadId": "grandchild",
+          "agentPath": "/root/nested_request/nested_reply"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207213732
+      },
+      "emittedAtMs": 1791207213732
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-16",
+          "kind": "completed",
+          "agentThreadId": "grandchild",
+          "agentPath": "/root/nested_request/nested_reply"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207213732
+      },
+      "emittedAtMs": 1791207213733
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-14",
+          "tool": "wait",
+          "status": "completed",
+          "senderThreadId": "child",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207213733
+      },
+      "emittedAtMs": 1791207213734
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-17",
+          "kind": "interacted",
+          "agentThreadId": "root",
+          "agentPath": "/root"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207215073
+      },
+      "emittedAtMs": 1791207215073
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-17",
+          "kind": "interacted",
+          "agentThreadId": "root",
+          "agentPath": "/root"
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207215073
+      },
+      "emittedAtMs": 1791207215074
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-10",
+          "tool": "wait",
+          "status": "completed",
+          "senderThreadId": "root",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207215073
+      },
+      "emittedAtMs": 1791207215075
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-18",
+          "tool": "wait",
+          "status": "inProgress",
+          "senderThreadId": "root",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207216390
+      },
+      "emittedAtMs": 1791207216390
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-19",
+          "text": "",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "startedAtMs": 1791207216605
+      },
+      "emittedAtMs": 1791207216605
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "itemId": "captured-id-19",
+        "delta": "nested"
+      },
+      "emittedAtMs": 1791207216605
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "itemId": "captured-id-19",
+        "delta": "-ok"
+      },
+      "emittedAtMs": 1791207216605
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-19",
+          "text": "nested-ok",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "child",
+        "turnId": "captured-id-9",
+        "completedAtMs": 1791207216727
+      },
+      "emittedAtMs": 1791207216728
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-20",
+          "kind": "completed",
+          "agentThreadId": "child",
+          "agentPath": "/root/nested_request"
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207216749
+      },
+      "emittedAtMs": 1791207216749
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "child",
+        "turn": {
+          "id": "captured-id-9",
+          "items": [
+            {
+              "type": "agentMessage",
+              "id": "captured-id-19",
+              "text": "nested-ok",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null
+            }
+          ],
+          "itemsView": "summary",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1791207201,
+          "completedAt": 1791207216,
+          "durationMs": 14958
+        }
+      },
+      "emittedAtMs": 1791207216749
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "subAgentActivity",
+          "id": "captured-id-20",
+          "kind": "completed",
+          "agentThreadId": "child",
+          "agentPath": "/root/nested_request"
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207216749
+      },
+      "emittedAtMs": 1791207216750
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "collabAgentToolCall",
+          "id": "captured-id-18",
+          "tool": "wait",
+          "status": "completed",
+          "senderThreadId": "root",
+          "receiverThreadIds": [],
+          "prompt": null,
+          "model": null,
+          "reasoningEffort": null,
+          "agentsStates": {}
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207216750
+      },
+      "emittedAtMs": 1791207216751
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-21",
+          "text": "",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "startedAtMs": 1791207217785
+      },
+      "emittedAtMs": 1791207217785
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": "The"
+      },
+      "emittedAtMs": 1791207217785
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": " nested"
+      },
+      "emittedAtMs": 1791207217798
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": " sub"
+      },
+      "emittedAtMs": 1791207217799
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": "agent"
+      },
+      "emittedAtMs": 1791207217821
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": " replied"
+      },
+      "emittedAtMs": 1791207217843
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": ":"
+      },
+      "emittedAtMs": 1791207217870
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": " nested"
+      },
+      "emittedAtMs": 1791207217887
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "root",
+        "turnId": "root-turn",
+        "itemId": "captured-id-21",
+        "delta": "-ok"
+      },
+      "emittedAtMs": 1791207217889
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "captured-id-21",
+          "text": "The nested subagent replied: nested-ok",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null
+        },
+        "threadId": "root",
+        "turnId": "root-turn",
+        "completedAtMs": 1791207218026
+      },
+      "emittedAtMs": 1791207218028
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "root",
+        "turn": {
+          "id": "root-turn",
+          "items": [
+            {
+              "type": "agentMessage",
+              "id": "captured-id-21",
+              "text": "The nested subagent replied: nested-ok",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null
+            }
+          ],
+          "itemsView": "summary",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1791207199,
+          "completedAt": 1791207218,
+          "durationMs": 18704
+        }
+      },
+      "emittedAtMs": 1791207218077
+    }
+  ],
+  "terminalNotifications": [
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "command-1",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/run/current-system/sw/bin/zsh -lc 'sleep 60'",
+          "cwd": "/fixture/workspace",
+          "processId": "process-1",
+          "source": "unifiedExecStartup",
+          "status": "inProgress",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 60"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": null,
+          "durationMs": null
+        },
+        "threadId": "terminal-root",
+        "turnId": "captured-id-22",
+        "startedAtMs": 1791207496593
+      },
+      "emittedAtMs": 1791207496603
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "terminal-root",
+        "turn": {
+          "id": "captured-id-22",
+          "status": "completed",
+          "items": [],
+          "itemsView": "full"
+        }
+      }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "command-1",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/run/current-system/sw/bin/zsh -lc 'sleep 60'",
+          "cwd": "/fixture/workspace",
+          "processId": "process-1",
+          "source": "unifiedExecStartup",
+          "status": "failed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 60"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": -1,
+          "durationMs": 32194
+        },
+        "threadId": "terminal-root",
+        "turnId": "captured-id-22",
+        "completedAtMs": 1791207528787
+      },
+      "emittedAtMs": 1791207528789
+    }
+  ],
+  "terminalList": {
+    "data": [
+      {
+        "itemId": "command-1",
+        "processId": "process-1",
+        "command": "sleep 60",
+        "cwd": "/fixture/workspace",
+        "osPid": null,
+        "cpuPercent": null,
+        "rssKb": null
+      }
+    ],
+    "nextCursor": null
+  },
+  "terminalTerminate": {
+    "terminated": true
+  },
+  "terminalListAfterStop": {
+    "data": [],
+    "nextCursor": null
+  }
+}
