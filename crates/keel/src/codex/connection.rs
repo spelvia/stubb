@@ -24,6 +24,7 @@ pub(crate) struct AppServer {
     user_agent: Option<String>,
     routing: Arc<Router>,
     metadata_task: JoinHandle<()>,
+    terminal_task: JoinHandle<()>,
 }
 
 impl AppServer {
@@ -76,11 +77,37 @@ impl AppServer {
                 }
             }
         });
+        let terminal_task = tokio::spawn({
+            let rpc = Arc::clone(&rpc);
+            let routing = Arc::clone(&routing);
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut failed = std::collections::HashSet::new();
+                loop {
+                    interval.tick().await;
+                    for (id, observation) in routing.terminal_targets() {
+                        match terminal_list(&rpc, &id, request_timeout).await {
+                            Ok(terminals) => {
+                                failed.remove(&id);
+                                observation.terminals(&id, terminals);
+                            }
+                            Err(message) => {
+                                if failed.insert(id.clone()) {
+                                    observation.terminal_failure(&id, &message);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
         Ok(Self {
             rpc,
             user_agent: init.user_agent,
             routing,
             metadata_task,
+            terminal_task,
         })
     }
 
@@ -104,6 +131,38 @@ impl AppServer {
     }
 }
 
+async fn terminal_list(
+    rpc: &rpc::Connection,
+    id: &str,
+    timeout: Duration,
+) -> std::result::Result<Vec<super::terminals::Terminal>, String> {
+    let mut cursor = None;
+    let mut seen = std::collections::HashSet::new();
+    let mut terminals = vec![];
+    // Never reconcile a partial pagination pass as terminal absence.
+    for _ in 0..32 {
+        let page: super::terminals::Page = rpc
+            .request(
+                "thread/backgroundTerminals/list",
+                &super::terminals::ListParams {
+                    thread_id: id,
+                    cursor: cursor.clone(),
+                    limit: 100,
+                },
+                timeout.min(Duration::from_secs(5)),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        terminals.extend(page.data);
+        match page.next_cursor {
+            None => return Ok(terminals),
+            Some(next) if seen.insert(next.clone()) => cursor = Some(next),
+            Some(_) => return Err("Repeated terminal pagination cursor".into()),
+        }
+    }
+    Err("Terminal pagination exceeded 32 pages".into())
+}
+
 impl Deref for AppServer {
     type Target = rpc::Connection;
 
@@ -115,6 +174,7 @@ impl Deref for AppServer {
 impl Drop for AppServer {
     fn drop(&mut self) {
         self.metadata_task.abort();
+        self.terminal_task.abort();
     }
 }
 

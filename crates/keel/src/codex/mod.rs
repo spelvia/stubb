@@ -12,6 +12,7 @@ mod observation;
 #[cfg(test)]
 mod observation_tests;
 mod routing;
+mod terminals;
 mod types;
 
 use std::collections::HashMap;

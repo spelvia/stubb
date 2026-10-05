@@ -36,6 +36,19 @@ impl Router {
         }
     }
 
+    pub(super) fn terminal_targets(&self) -> Vec<(String, Arc<Observation>)> {
+        let state = self.state.lock().expect("routing lock");
+        state
+            .roots
+            .values()
+            .flat_map(|root| {
+                root.terminal_threads()
+                    .into_iter()
+                    .map(|id| (id, Arc::clone(root)))
+            })
+            .collect()
+    }
+
     pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
         let mut state = self.state.lock().expect("routing lock");
         if state

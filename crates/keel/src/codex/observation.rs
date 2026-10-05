@@ -24,6 +24,7 @@ struct State {
     branch: Branch,
     children: BTreeMap<String, Branch>,
     announced: bool,
+    tasks: super::terminals::Tasks,
 }
 
 struct Branch {
@@ -78,6 +79,7 @@ impl Observation {
                 },
                 children: BTreeMap::new(),
                 announced: false,
+                tasks: Default::default(),
             }),
             legacy: broadcast::channel(BUFFER).0,
             records: broadcast::channel(BUFFER).0,
@@ -101,6 +103,9 @@ impl Observation {
             .collect();
         for agent in agents {
             state.publish(&self.records, None, obs::Event::Agent { agent });
+        }
+        for task in state.tasks.summaries() {
+            state.publish(&self.records, None, obs::Event::Task { task });
         }
         receiver
     }
@@ -126,6 +131,83 @@ impl Observation {
 }
 
 impl Observation {
+    pub(super) fn terminal_failure(&self, owner: &str, message: &str) {
+        let mut state = self.state.lock().expect("observation lock");
+        if state.closed {
+            return;
+        }
+        let before = state.aggregate_status();
+        for task in state.tasks.lost(Some(owner)) {
+            state.publish(&self.records, None, obs::Event::Task { task });
+        }
+        let status = state.aggregate_status();
+        if status != before {
+            state.publish(
+                &self.records,
+                None,
+                obs::Event::Activity {
+                    event: session::Event::Status { status },
+                    usage_scope: None,
+                },
+            );
+        }
+        state.publish(
+            &self.records,
+            None,
+            obs::Event::Activity {
+                event: session::Event::Raw {
+                    name: "keel/taskMonitoringGap".into(),
+                    payload: serde_json::json!({"agentId": owner, "message": message}),
+                },
+                usage_scope: None,
+            },
+        );
+    }
+
+    pub(super) fn terminal_threads(&self) -> Vec<String> {
+        let state = self.state.lock().expect("observation lock");
+        if state.closed {
+            return vec![];
+        }
+        std::iter::once(state.root.id.clone())
+            .chain(
+                state
+                    .children
+                    .values()
+                    .filter(|branch| !branch.closed)
+                    .map(|branch| branch.root.id.clone()),
+            )
+            .collect()
+    }
+
+    pub(super) fn terminals(&self, owner: &str, terminals: Vec<super::terminals::Terminal>) {
+        let mut state = self.state.lock().expect("observation lock");
+        if state.closed
+            || (owner != state.root.id
+                && state.children.get(owner).is_none_or(|branch| branch.closed))
+        {
+            return;
+        }
+        if !state.announced {
+            state.announce(&self.records);
+        }
+        let before = state.aggregate_status();
+        for task in state.tasks.list(owner, terminals) {
+            state.publish(&self.records, None, obs::Event::Task { task });
+        }
+        let status = state.aggregate_status();
+        if status != before {
+            state.publish(
+                &self.records,
+                None,
+                obs::Event::Activity {
+                    event: session::Event::Status { status },
+                    usage_scope: None,
+                },
+            );
+        }
+    }
+
     pub(super) fn upsert_agent(&self, agent: agent::Summary) {
         let mut state = self.state.lock().expect("observation lock");
         if state.closed || agent.id == state.root.id {
@@ -210,6 +292,14 @@ impl Observation {
                 state.publish(&self.records, None, obs::Event::Agent { agent });
             }
         }
+        let updates = if matches!(event, session::Event::Closed { .. }) {
+            state.tasks.lost(if root_event { None } else { Some(id) })
+        } else {
+            state.tasks.event(id, &event)
+        };
+        for task in updates {
+            state.publish(&self.records, None, obs::Event::Task { task });
+        }
         let status = state.aggregate_status();
         if (old_status != status || matches!(event, session::Event::Status { .. }))
             && !(root_event && matches!(event, session::Event::Closed { .. }))
@@ -293,7 +383,8 @@ impl State {
         if self.closed {
             return session::Status::NotLoaded;
         }
-        if self.branch.status == session::Status::Active
+        if self.tasks.running()
+            || self.branch.status == session::Status::Active
             || self
                 .children
                 .values()
@@ -487,6 +578,13 @@ fn capabilities() -> obs::Capabilities {
         reason: Some("Live root and descendant activity on the attached app-server connection".into()),
         gaps: vec!["Stored descendant discovery on resume is not implemented".into(), "Early traffic buffering is bounded; transcript gaps are reported as raw observationGap events".into()],
     };
+    let tasks = obs::Feature {
+        support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+        reason: Some("Read-only running-terminal polling and live command events".into()),
+        gaps: vec!["Commands that finish between polls may never appear as background tasks".into(),
+            "List absence does not establish an outcome; final command events are required".into(),
+            "Output is delivered through attributed command items and deltas; no output replay or stored task history".into()],
+    };
     obs::Capabilities {
         records: live.clone(),
         snapshots: unavailable.clone(),
@@ -496,9 +594,9 @@ fn capabilities() -> obs::Capabilities {
         agent_lifecycle: live.clone(),
         agent_transcript: live,
         agent_history: unavailable.clone(),
-        task_discovery: unavailable.clone(),
-        task_lifecycle: unavailable.clone(),
-        task_output: unavailable.clone(),
+        task_discovery: tasks.clone(),
+        task_lifecycle: tasks.clone(),
+        task_output: tasks,
         task_history: unavailable.clone(),
         stop_agent: unavailable.clone(),
         stop_subtree: unavailable.clone(),
@@ -546,6 +644,54 @@ mod tests {
                 error: None,
             },
         }
+    }
+
+    #[test]
+    fn captured_terminal_retains_owner_after_turn_and_bootstraps_until_native_exit() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+        let observation = make_observation();
+        let mut receiver = observation.subscribe_records();
+        let page: super::super::terminals::Page =
+            serde_json::from_value(fixture["terminalList"].clone()).unwrap();
+        let notifications = fixture["terminalNotifications"].as_array().unwrap();
+        for notification in notifications.iter().take(2) {
+            observation.emit(super::super::events::from_notification(
+                notification["method"].as_str().unwrap(),
+                notification["params"].clone(),
+            ));
+        }
+        observation.terminals("root", page.data);
+        let task = observation.state.lock().unwrap().tasks.summaries()[0].clone();
+        assert_eq!(task.owner_agent_id.as_deref(), Some("root"));
+        assert_eq!(task.status, crate::task::Status::Running);
+        assert_eq!(
+            observation.state.lock().unwrap().aggregate_status(),
+            session::Status::Active
+        );
+        let mut late = observation.subscribe_records();
+        assert!(drain(&mut late).iter().any(|record| matches!(&record.event, obs::Event::Task { task: replacement } if replacement.id == task.id)));
+        observation.terminal_failure("root", "test transport loss");
+        assert_eq!(
+            observation.state.lock().unwrap().tasks.summaries()[0].status,
+            crate::task::Status::Unknown
+        );
+        for notification in notifications.iter().skip(2) {
+            observation.emit(super::super::events::from_notification(
+                notification["method"].as_str().unwrap(),
+                notification["params"].clone(),
+            ));
+        }
+        let summary = observation.state.lock().unwrap().tasks.summaries()[0].clone();
+        assert_eq!(summary.id, task.id);
+        assert_eq!(summary.status, crate::task::Status::Failed);
+        let records = drain(&mut receiver);
+        assert!(
+            records
+                .windows(2)
+                .all(|pair| pair[1].seq == pair[0].seq + 1)
+        );
+        assert!(records.iter().any(|record| matches!(&record.event, obs::Event::Activity { event: session::Event::Raw { name, .. }, .. } if name == "keel/taskMonitoringGap")));
     }
 
     #[test]
