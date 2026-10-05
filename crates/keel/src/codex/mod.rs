@@ -459,6 +459,10 @@ impl session::Driver for CodexSession {
         Ok(self.observation.capabilities())
     }
 
+    fn snapshot(&self) -> BoxFuture<'_, Result<crate::observation::Snapshot>> {
+        Box::pin(async { Ok(self.observation.snapshot()) })
+    }
+
     fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
         Box::pin(self.stop(crate::control::Target::Agent { id: id.into() }))
     }

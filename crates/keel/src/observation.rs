@@ -80,6 +80,7 @@ pub struct Snapshot {
     /// Materialized turns/items still receiving activity, including commands
     /// that continue after their owning turn has ended.
     pub active_turns: Vec<agent::OwnedTurn>,
+    pub pending_controls: Vec<crate::control::Receipt>,
     pub capabilities: Capabilities,
 }
 
@@ -233,6 +234,7 @@ mod tests {
             agents: vec![],
             tasks: vec![],
             active_turns: vec![owned],
+            pending_controls: vec![],
             capabilities: Capabilities::default(),
         };
         let value = serde_json::to_value(&snapshot).unwrap();

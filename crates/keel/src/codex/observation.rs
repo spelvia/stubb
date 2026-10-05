@@ -122,6 +122,36 @@ impl Observation {
         receiver
     }
 
+    pub(super) fn snapshot(&self) -> obs::Snapshot {
+        let state = self.state.lock().expect("observation lock");
+        let branches = std::iter::once(&state.branch).chain(state.children.values());
+        obs::Snapshot {
+            stream_id: state.stream_id.clone(),
+            seq: state.seq,
+            status: state.aggregate_status(),
+            root_agent_id: state.root.id.clone(),
+            agents: std::iter::once(state.root.clone())
+                .chain(state.children.values().map(|branch| branch.root.clone()))
+                .collect(),
+            tasks: state.tasks.summaries(),
+            active_turns: branches
+                .flat_map(|branch| {
+                    branch.turns.values().map(|materialized| agent::OwnedTurn {
+                        agent_id: branch.root.id.clone(),
+                        turn: materialized.turn.clone(),
+                    })
+                })
+                .collect(),
+            pending_controls: state
+                .controls
+                .values()
+                .filter(|pending| pending.receipt.is_pending())
+                .map(|pending| pending.receipt.clone())
+                .collect(),
+            capabilities: capabilities(),
+        }
+    }
+
     pub(super) fn capabilities(&self) -> obs::Capabilities {
         capabilities()
     }
@@ -600,7 +630,10 @@ fn capabilities() -> obs::Capabilities {
     };
     obs::Capabilities {
         records: live.clone(),
-        snapshots: unavailable.clone(),
+        snapshots: obs::Feature { support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Atomic reducer state and stream watermark".into()),
+            gaps: vec!["Completed transcripts and usage totals are not replayed by snapshots".into(), "Native traffic lost before routing cannot be recovered from reducer state".into()],
+        },
         agent_discovery: live.clone(),
         parent_links: live.clone(),
         nested_discovery: live.clone(),
@@ -665,6 +698,49 @@ mod tests {
                 error: None,
             },
         }
+    }
+
+    #[test]
+    fn snapshot_watermark_is_atomic_and_keeps_owned_turns_and_pending_stops() {
+        let observation = make_observation();
+        let mut receiver = observation.subscribe_records();
+        observation.emit(session::Event::TurnStart {
+            turn_id: "turn".into(),
+        });
+        observation.emit(session::Event::ItemDelta {
+            turn_id: "turn".into(),
+            item_id: "message".into(),
+            delta: turn::Delta::Text {
+                text: "before".into(),
+            },
+        });
+        let (receipt, _) = observation
+            .begin_stop(crate::control::Target::Agent { id: "root".into() })
+            .unwrap();
+        let snapshot = observation.snapshot();
+        assert_eq!(snapshot.pending_controls[0].id, receipt.id);
+        assert!(
+            matches!(&snapshot.active_turns[0].turn.items[0], turn::Item::AgentMessage { text, .. } if text == "before")
+        );
+        assert_eq!(snapshot.seq, drain(&mut receiver).last().unwrap().seq);
+        observation.emit(session::Event::ItemDelta {
+            turn_id: "turn".into(),
+            item_id: "message".into(),
+            delta: turn::Delta::Text {
+                text: "after".into(),
+            },
+        });
+        let records = drain(&mut receiver);
+        assert!(
+            records
+                .iter()
+                .all(|record| record.seq > snapshot.seq && record.stream_id == snapshot.stream_id)
+        );
+        observation.emit(session::Event::Closed {
+            reason: session::CloseReason::Client,
+        });
+        assert_eq!(observation.snapshot().status, session::Status::NotLoaded);
+        assert!(observation.snapshot().active_turns.is_empty());
     }
 
     #[test]
