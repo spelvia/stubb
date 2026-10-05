@@ -1,4 +1,4 @@
-//! Root observation reduction. The RPC reader delivers directly to this sink;
+//! Recursive session observation reduction. The RPC reader delivers directly to this sink;
 //! no broadcast subscriber or asynchronous relay owns authoritative state.
 
 use std::collections::{BTreeMap, HashSet};
@@ -21,11 +21,28 @@ pub(super) struct Observation {
 struct State {
     stream_id: String,
     seq: u64,
-    root: agent::Summary,
+    branch: Branch,
+    children: BTreeMap<String, Branch>,
     announced: bool,
+}
+
+struct Branch {
+    root: agent::Summary,
     closed: bool,
     status: session::Status,
     turns: BTreeMap<String, Materialized>,
+}
+
+impl std::ops::Deref for State {
+    type Target = Branch;
+    fn deref(&self) -> &Branch {
+        &self.branch
+    }
+}
+impl std::ops::DerefMut for State {
+    fn deref_mut(&mut self) -> &mut Branch {
+        &mut self.branch
+    }
 }
 
 struct Materialized {
@@ -40,24 +57,27 @@ impl Observation {
             state: Mutex::new(State {
                 stream_id: uuid::Uuid::new_v4().to_string(),
                 seq: 0,
-                root: agent::Summary {
-                    id: info.summary.id.clone(),
-                    parent: agent::Parent::Root,
-                    name: None,
-                    role: None,
-                    model: Some(info.model.clone()),
-                    description: None,
-                    background: None,
-                    // An idle attachment alone does not establish a work outcome.
-                    status: agent::Status::Unknown,
-                    origin: None,
-                    created_at: Some(info.summary.created_at),
-                    updated_at: Some(info.summary.updated_at),
+                branch: Branch {
+                    root: agent::Summary {
+                        id: info.summary.id.clone(),
+                        parent: agent::Parent::Root,
+                        name: None,
+                        role: None,
+                        model: Some(info.model.clone()),
+                        description: None,
+                        background: None,
+                        // An idle attachment alone does not establish a work outcome.
+                        status: agent::Status::Unknown,
+                        origin: None,
+                        created_at: Some(info.summary.created_at),
+                        updated_at: Some(info.summary.updated_at),
+                    },
+                    closed: false,
+                    status: info.summary.status,
+                    turns: BTreeMap::new(),
                 },
+                children: BTreeMap::new(),
                 announced: false,
-                closed: false,
-                status: info.summary.status,
-                turns: BTreeMap::new(),
             }),
             legacy: broadcast::channel(BUFFER).0,
             records: broadcast::channel(BUFFER).0,
@@ -74,6 +94,14 @@ impl Observation {
         let mut state = self.state.lock().expect("observation lock");
         let receiver = self.records.subscribe();
         state.announce(&self.records);
+        let agents: Vec<_> = state
+            .children
+            .values()
+            .map(|branch| branch.root.clone())
+            .collect();
+        for agent in agents {
+            state.publish(&self.records, None, obs::Event::Agent { agent });
+        }
         receiver
     }
 
@@ -97,8 +125,40 @@ impl Observation {
     }
 }
 
-impl EventSink for Observation {
-    fn emit(&self, event: session::Event) {
+impl Observation {
+    pub(super) fn upsert_agent(&self, agent: agent::Summary) {
+        let mut state = self.state.lock().expect("observation lock");
+        if state.closed || agent.id == state.root.id {
+            return;
+        }
+        if !state.announced {
+            state.announce(&self.records);
+        }
+        let existed = state.children.contains_key(&agent.id);
+        let branch = state
+            .children
+            .entry(agent.id.clone())
+            .or_insert_with(|| Branch {
+                root: agent.clone(),
+                status: session::Status::Idle,
+                closed: false,
+                turns: BTreeMap::new(),
+            });
+        // Metadata reads do not overwrite a newer observed work outcome.
+        let mut replacement = agent;
+        replacement.status = branch.root.status;
+        if existed && replacement == branch.root {
+            return;
+        }
+        branch.root = replacement.clone();
+        state.publish(
+            &self.records,
+            None,
+            obs::Event::Agent { agent: replacement },
+        );
+    }
+
+    pub(super) fn emit_for(&self, id: &str, event: session::Event) {
         let mut state = self.state.lock().expect("observation lock");
         if state.closed {
             return;
@@ -106,19 +166,54 @@ impl EventSink for Observation {
         if !state.announced {
             state.announce(&self.records);
         }
-        let old_root = state.root.clone();
-        let old_status = state.status;
-        state.reduce(&event);
-        if state.root != old_root {
-            state.announce(&self.records);
+        let root_event = id == state.root.id;
+        let old_status = state.aggregate_status();
+        let branch = if root_event {
+            &mut state.branch
+        } else {
+            let Some(branch) = state.children.get_mut(id) else {
+                return;
+            };
+            branch
+        };
+        if branch.closed {
+            // A native new turn can reopen a previously closed child context.
+            // Root attachment closure still requires a new observation stream.
+            if !root_event && matches!(event, session::Event::TurnStart { .. }) {
+                branch.closed = false;
+            } else {
+                return;
+            }
         }
-        if old_status != state.status
-            && !matches!(
-                event,
-                session::Event::Status { .. } | session::Event::Closed { .. }
-            )
+        let previous = branch.root.clone();
+        branch.reduce(&event);
+        let replacement = (previous != branch.root).then(|| branch.root.clone());
+        if let Some(agent) = replacement {
+            state.publish(&self.records, None, obs::Event::Agent { agent });
+        }
+        if root_event && matches!(event, session::Event::Closed { .. }) {
+            let replacements: Vec<_> = state
+                .children
+                .values_mut()
+                .filter_map(|child| {
+                    if child.status == session::Status::Active || !child.turns.is_empty() {
+                        child.root.status = agent::Status::Unknown;
+                        child.status = session::Status::NotLoaded;
+                        child.turns.clear();
+                        Some(child.root.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for agent in replacements {
+                state.publish(&self.records, None, obs::Event::Agent { agent });
+            }
+        }
+        let status = state.aggregate_status();
+        if (old_status != status || matches!(event, session::Event::Status { .. }))
+            && !(root_event && matches!(event, session::Event::Closed { .. }))
         {
-            let status = state.status;
             state.publish(
                 &self.records,
                 None,
@@ -128,28 +223,38 @@ impl EventSink for Observation {
                 },
             );
         }
-        let agent_id = match event {
-            session::Event::Status { .. } | session::Event::Closed { .. } => None,
-            _ => Some(state.root.id.clone()),
-        };
-        let usage_scope =
-            matches!(event, session::Event::Usage { .. }).then_some(obs::UsageScope::Unknown);
-        let attributed_event = match &event {
-            session::Event::Status { .. } => session::Event::Status {
-                status: state.status,
-            },
-            _ => event.clone(),
-        };
-        state.publish(
-            &self.records,
-            agent_id,
-            obs::Event::Activity {
-                event: attributed_event,
-                usage_scope,
-            },
-        );
-        // Preserve the existing root-only projection, including native status.
-        let _ = self.legacy.send(event);
+        // Child status/closure are node updates, never root session closures.
+        if !matches!(event, session::Event::Status { .. })
+            && (root_event || !matches!(event, session::Event::Closed { .. }))
+        {
+            let agent_id = if matches!(event, session::Event::Closed { .. })
+                || matches!(&event, session::Event::Raw { name, .. } if name == "keel/observationGap")
+            {
+                None
+            } else {
+                Some(id.into())
+            };
+            let usage_scope =
+                matches!(event, session::Event::Usage { .. }).then_some(obs::UsageScope::Unknown);
+            state.publish(
+                &self.records,
+                agent_id,
+                obs::Event::Activity {
+                    event: event.clone(),
+                    usage_scope,
+                },
+            );
+        }
+        if root_event {
+            let _ = self.legacy.send(event);
+        }
+    }
+}
+
+impl EventSink for Observation {
+    fn emit(&self, event: session::Event) {
+        let id = self.state.lock().expect("observation lock").root.id.clone();
+        self.emit_for(&id, event);
     }
 }
 
@@ -184,6 +289,24 @@ impl State {
         });
     }
 
+    fn aggregate_status(&self) -> session::Status {
+        if self.closed {
+            return session::Status::NotLoaded;
+        }
+        if self.branch.status == session::Status::Active
+            || self
+                .children
+                .values()
+                .any(|child| child.status == session::Status::Active)
+        {
+            session::Status::Active
+        } else {
+            self.branch.status
+        }
+    }
+}
+
+impl Branch {
     fn turn(&mut self, id: &str) -> &mut Materialized {
         self.turns.entry(id.into()).or_insert_with(|| Materialized {
             turn: turn::Turn {
@@ -202,7 +325,15 @@ impl State {
 
     fn reduce(&mut self, event: &session::Event) {
         match event {
-            session::Event::Status { status } => self.status = *status,
+            session::Event::Status { status } => {
+                self.status = *status;
+                if *status == session::Status::Active {
+                    self.root.status = agent::Status::Running;
+                }
+                if *status == session::Status::Error {
+                    self.root.status = agent::Status::Failed;
+                }
+            }
             session::Event::TurnStart { turn_id } => {
                 self.turn(turn_id);
                 self.root.status = agent::Status::Running;
@@ -350,20 +481,20 @@ fn capabilities() -> obs::Capabilities {
         reason: Some("Not implemented by this adapter checkpoint".into()),
         gaps: vec![],
     };
-    let root_only = obs::Feature {
+    let live = obs::Feature {
         support: obs::Support::Supported,
         coverage: obs::Coverage::Partial,
-        reason: Some("Root activity only".into()),
-        gaps: vec!["Descendant routing and native task observation are not implemented".into()],
+        reason: Some("Live root and descendant activity on the attached app-server connection".into()),
+        gaps: vec!["Stored descendant discovery on resume is not implemented".into(), "Early traffic buffering is bounded; transcript gaps are reported as raw observationGap events".into()],
     };
     obs::Capabilities {
-        records: root_only.clone(),
+        records: live.clone(),
         snapshots: unavailable.clone(),
-        agent_discovery: root_only.clone(),
-        parent_links: unavailable.clone(),
-        nested_discovery: unavailable.clone(),
-        agent_lifecycle: root_only.clone(),
-        agent_transcript: root_only,
+        agent_discovery: live.clone(),
+        parent_links: live.clone(),
+        nested_discovery: live.clone(),
+        agent_lifecycle: live.clone(),
+        agent_transcript: live,
         agent_history: unavailable.clone(),
         task_discovery: unavailable.clone(),
         task_lifecycle: unavailable.clone(),
@@ -641,5 +772,103 @@ mod tests {
         assert_eq!(state.status, session::Status::NotLoaded);
         assert!(state.turns.is_empty());
         assert!(state.closed);
+    }
+    #[test]
+    fn siblings_have_independent_items_and_outlive_the_root_turn() {
+        let observation = make_observation();
+        let mut records = observation.subscribe_records();
+        for id in ["a", "b"] {
+            observation.upsert_agent(agent::Summary {
+                id: id.into(),
+                parent: agent::Parent::Agent { id: "root".into() },
+                name: None,
+                role: None,
+                model: None,
+                description: None,
+                background: None,
+                status: agent::Status::Unknown,
+                origin: None,
+                created_at: None,
+                updated_at: None,
+            });
+            observation.emit_for(
+                id,
+                session::Event::TurnStart {
+                    turn_id: "same-turn".into(),
+                },
+            );
+        }
+        for (id, text) in [("a", "alpha"), ("b", "beta")] {
+            observation.emit_for(
+                id,
+                session::Event::ItemDelta {
+                    turn_id: "same-turn".into(),
+                    item_id: "same-item".into(),
+                    delta: turn::Delta::Text { text: text.into() },
+                },
+            );
+        }
+        observation.emit(end("root-turn"));
+        {
+            let state = observation.state.lock().unwrap();
+            assert_eq!(state.aggregate_status(), session::Status::Active);
+            for (id, expected) in [("a", "alpha"), ("b", "beta")] {
+                assert!(
+                    matches!(&state.children[id].turns["same-turn"].turn.items[0], turn::Item::AgentMessage { text, .. } if text == expected)
+                );
+            }
+        }
+        observation.emit_for(
+            "a",
+            session::Event::Closed {
+                reason: session::CloseReason::Agent,
+            },
+        );
+        observation.emit_for(
+            "b",
+            session::Event::ItemEnd {
+                turn_id: "same-turn".into(),
+                item: turn::Item::AgentMessage {
+                    id: "same-item".into(),
+                    text: "beta".into(),
+                },
+            },
+        );
+        observation.emit_for("b", end("same-turn"));
+        observation.emit_for(
+            "b",
+            session::Event::TurnStart {
+                turn_id: "continued".into(),
+            },
+        );
+        observation.emit_for(
+            "b",
+            session::Event::Closed {
+                reason: session::CloseReason::Agent,
+            },
+        );
+        let state = observation.state.lock().unwrap();
+        assert!(!state.closed);
+        assert_eq!(state.children["a"].root.status, agent::Status::Closed);
+        assert_eq!(state.children["b"].root.status, agent::Status::Closed);
+        assert_eq!(state.aggregate_status(), session::Status::Idle);
+        drop(state);
+        observation.emit_for(
+            "b",
+            session::Event::TurnStart {
+                turn_id: "reopened".into(),
+            },
+        );
+        assert_eq!(
+            observation.state.lock().unwrap().children["b"].root.status,
+            agent::Status::Running
+        );
+        assert!(!drain(&mut records).iter().any(|record| matches!(
+            record.event,
+            obs::Event::Activity {
+                event: session::Event::Closed { .. },
+                ..
+            }
+        )));
     }
 }

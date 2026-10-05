@@ -2,25 +2,28 @@
 //! session of one [`Codex`](super::Codex) provider. Sessions are routed by
 //! Codex thread id.
 
-use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
 use tokio::process::Command;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use super::events;
 use super::observation::Observation;
+use super::routing::Router;
 use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
 use crate::rpc::{self, Handler};
 use crate::{Result, session};
 
 pub(crate) struct AppServer {
-    rpc: rpc::Connection,
+    rpc: Arc<rpc::Connection>,
     user_agent: Option<String>,
-    observations: Mutex<HashMap<String, Arc<Observation>>>,
+    routing: Arc<Router>,
+    metadata_task: JoinHandle<()>,
 }
 
 impl AppServer {
@@ -28,7 +31,13 @@ impl AppServer {
     pub(crate) async fn start(executable: &Path, request_timeout: Duration) -> Result<Self> {
         let mut command = Command::new(executable);
         command.arg("app-server");
-        let rpc = rpc::Connection::spawn(command, "codex app-server", Arc::new(CodexHandler))?;
+        let (metadata_tx, mut metadata_rx) = mpsc::channel::<String>(128);
+        let routing = Arc::new(Router::new(metadata_tx));
+        let rpc = Arc::new(rpc::Connection::spawn(
+            command,
+            "codex app-server",
+            Arc::new(CodexHandler(Arc::clone(&routing))),
+        )?);
         let init: InitializeResponse = rpc
             .request(
                 "initialize",
@@ -48,10 +57,30 @@ impl AppServer {
             )
             .await?;
         rpc.notify("initialized").await?;
+        let metadata_task = tokio::spawn({
+            let rpc = Arc::clone(&rpc);
+            let routing = Arc::clone(&routing);
+            async move {
+                while let Some(id) = metadata_rx.recv().await {
+                    match rpc
+                        .request::<_, super::types::ThreadReadResponse>(
+                            "thread/read",
+                            &super::types::ThreadIdParams { thread_id: &id },
+                            request_timeout,
+                        )
+                        .await
+                    {
+                        Ok(response) => routing.metadata(response.thread),
+                        Err(error) => routing.metadata_failed(&id, &error.to_string()),
+                    }
+                }
+            }
+        });
         Ok(Self {
             rpc,
             user_agent: init.user_agent,
-            observations: Mutex::new(HashMap::new()),
+            routing,
+            metadata_task,
         })
     }
 
@@ -60,34 +89,16 @@ impl AppServer {
     }
 
     pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
-        let mut observations = self.observations.lock().expect("observations lock");
-        if observations
-            .get(&info.summary.id)
-            .is_some_and(|state| state.is_closed())
-        {
-            observations.remove(&info.summary.id);
-        }
-        let observation = Arc::clone(observations.entry(info.summary.id.clone()).or_insert_with(
-            || {
-                let observation = Arc::new(Observation::new(info));
-                self.rpc
-                    .register_session(&info.summary.id, observation.clone());
-                observation
-            },
-        ));
-        observation.refresh_metadata(info);
+        let observation = self.routing.observe(info);
+        self.rpc
+            .register_session(&info.summary.id, observation.clone());
         observation
     }
 
     pub(super) fn detach(&self, session_id: &str, expected: &Arc<Observation>) -> bool {
-        let mut observations = self.observations.lock().expect("observations lock");
-        if !observations
-            .get(session_id)
-            .is_some_and(|state| Arc::ptr_eq(state, expected))
-        {
+        if !self.routing.detach(session_id, expected) {
             return false;
         }
-        observations.remove(session_id);
         self.rpc.unregister_session(session_id);
         true
     }
@@ -101,9 +112,25 @@ impl Deref for AppServer {
     }
 }
 
-struct CodexHandler;
+impl Drop for AppServer {
+    fn drop(&mut self) {
+        self.metadata_task.abort();
+    }
+}
+
+struct CodexHandler(Arc<Router>);
 
 impl Handler for CodexHandler {
+    fn route_notification(&self, method: &str, params: &Value) -> bool {
+        self.0.notification(method, params);
+        true
+    }
+
+    fn route_event(&self, params: &Value, event: &session::Event) -> bool {
+        self.0.event(params, event.clone());
+        true
+    }
+
     fn session_id<'a>(&self, params: &'a Value) -> Option<&'a str> {
         params
             .get("threadId")

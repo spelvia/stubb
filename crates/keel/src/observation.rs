@@ -3,7 +3,7 @@
 //! These types describe a negotiated harness surface, not Keel orchestration.
 //! Adapters must explicitly implement observation; empty results cannot stand in
 //! for unsupported discovery. Check effective capabilities: adapters can cover
-//! only part of the surface, such as Codex root activity without descendants.
+//! only part of the surface, such as live Codex activity without stored descendant discovery.
 
 use serde::{Deserialize, Serialize};
 

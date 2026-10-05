@@ -11,6 +11,7 @@ mod history;
 mod observation;
 #[cfg(test)]
 mod observation_tests;
+mod routing;
 mod types;
 
 use std::collections::HashMap;

@@ -148,6 +148,12 @@ pub(crate) struct Thread {
     /// A string such as `vscode`, or an object for sub-agent threads.
     #[serde(default)]
     pub source: Value,
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
+    #[serde(default)]
+    pub agent_nickname: Option<String>,
+    #[serde(default)]
+    pub agent_role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

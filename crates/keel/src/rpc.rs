@@ -37,6 +37,15 @@ pub(crate) trait EventSink: Send + Sync {
 
 /// Provider-specific interpretation of messages from the child.
 pub(crate) trait Handler: Send + Sync + 'static {
+    /// Provider routing/discovery before exact-session filtering. Returning true
+    /// means the provider consumed or buffered this notification itself.
+    fn route_notification(&self, _method: &str, _params: &Value) -> bool {
+        false
+    }
+
+    fn route_event(&self, _params: &Value, _event: &session::Event) -> bool {
+        false
+    }
     /// The session a notification or request belongs to.
     fn session_id<'a>(&self, params: &'a Value) -> Option<&'a str>;
 
@@ -292,14 +301,18 @@ impl Shared {
                 let params = params();
                 let (reply, event) = self.handler.request(id, method, &params);
                 let _ = self.write(&reply).await;
-                if let Some(event) = event {
+                if let Some(event) = event
+                    && !self.handler.route_event(&params, &event)
+                {
                     self.emit(&params, vec![event]);
                 }
             }
             (None, Some(method)) => {
                 let params = params();
                 // Skip the mapping work for sessions nobody routes.
-                if self.sender(&params).is_some() {
+                if !self.handler.route_notification(method, &params)
+                    && self.sender(&params).is_some()
+                {
                     let events = self.handler.notification(method, params.clone());
                     self.emit(&params, events);
                 }
