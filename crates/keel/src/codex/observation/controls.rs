@@ -29,6 +29,7 @@ impl Observation {
                 operation: "stop_closed_attachment",
             });
         }
+        let before = state.aggregate_status();
         let (owner, item_id, turn_id, request, disposition) = match &target {
             Target::Agent { id } => {
                 let branch = if id == &state.root.id {
@@ -118,6 +119,7 @@ impl Observation {
         {
             state.publish(&self.records, None, obs::Event::Task { task });
         }
+        state.control_status(before, &self.records);
         state.publish(
             &self.records,
             None,
@@ -137,6 +139,7 @@ impl Observation {
         if state.closed {
             return state.controls[id].receipt.clone();
         }
+        let before = state.aggregate_status();
         let pending = state.controls.get_mut(id).expect("registered control");
         if !matches!(
             pending.receipt.disposition,
@@ -173,6 +176,7 @@ impl Observation {
                 state.publish(&self.records, None, obs::Event::Task { task });
             }
         }
+        state.control_status(before, &self.records);
         state.publish(
             &self.records,
             None,
@@ -185,6 +189,24 @@ impl Observation {
 }
 
 impl State {
+    fn control_status(
+        &mut self,
+        before: session::Status,
+        records: &broadcast::Sender<obs::Record>,
+    ) {
+        let status = self.aggregate_status();
+        if status != before {
+            self.publish(
+                records,
+                None,
+                obs::Event::Activity {
+                    event: session::Event::Status { status },
+                    usage_scope: None,
+                },
+            );
+        }
+    }
+
     pub(super) fn control_event(
         &mut self,
         owner: &str,

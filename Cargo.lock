@@ -94,6 +94,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keel-test-harness"
+version = "0.0.0"
+dependencies = [
+ "keel",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
