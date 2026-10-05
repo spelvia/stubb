@@ -26,6 +26,22 @@ cargo run --example chat -- pi --effort low
 
 ## Development
 
+The library lives in `crates/keel`. Public `agent`, `task`, `control`, and
+`observation` modules define the consumer contracts. `observation/capabilities.rs`
+contains capability types, reexported through `keel::observation`.
+
+Within the Codex adapter, `agents.rs` handles stored discovery and history;
+`live/` contains attachment state, routing, task reconciliation, and stop tracking.
+Captured native data and decoding tests live in `codex/fixtures/`.
+
+The unpublished fake-process workspace member lives in
+[`tests/codex-harness`](tests/codex-harness). Root Cargo commands default to the
+library; use `--workspace` to include the harness tests:
+
+```sh
+cargo test --workspace --locked
+```
+
 Install the Git hooks in a checkout with:
 
 ```sh

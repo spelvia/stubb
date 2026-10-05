@@ -5,8 +5,9 @@ native JSON-RPC transport. The executable accepts `app-server`; scenarios are
 selected by the resumed root ID, without shared environment variables. It never
 runs commands, invokes a model, or requires an installed Codex CLI.
 
-Run `cargo test -p keel-test-harness --test observation` or the normal workspace
-suite. The peer scripts the protocol subset needed for these assertions; it is
+Run `cargo test -p keel-test-harness --test observation` or
+`cargo test --workspace --locked`. Root Cargo commands default to the library.
+The peer scripts the protocol subset needed for these assertions; it is
 not a general Codex, Claude, or Pi simulator. Real Luna checks through keel-tester
 remain necessary to validate the native CLI behavior and consumer interface.
 

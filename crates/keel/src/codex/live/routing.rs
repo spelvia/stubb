@@ -7,20 +7,21 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use super::{events, observation::Observation, types};
+use super::super::{events, types};
+use super::Attachment;
 use crate::rpc::EventSink;
 use crate::{agent, session};
 
 const EARLY_EVENTS: usize = 1024;
 
-pub(super) struct Router {
+pub(in crate::codex) struct Router {
     state: Mutex<State>,
     metadata: mpsc::Sender<String>,
 }
 
 #[derive(Default)]
 struct State {
-    roots: HashMap<String, Arc<Observation>>,
+    roots: HashMap<String, Arc<Attachment>>,
     nodes: BTreeMap<String, agent::Summary>,
     known_roots: HashSet<String>,
     referenced_by: HashMap<String, HashSet<String>>,
@@ -30,14 +31,14 @@ struct State {
 }
 
 impl Router {
-    pub(super) fn new(metadata: mpsc::Sender<String>) -> Self {
+    pub(in crate::codex) fn new(metadata: mpsc::Sender<String>) -> Self {
         Self {
             state: Mutex::new(State::default()),
             metadata,
         }
     }
 
-    pub(super) fn terminal_targets(&self) -> Vec<(String, Arc<Observation>)> {
+    pub(in crate::codex) fn terminal_targets(&self) -> Vec<(String, Arc<Attachment>)> {
         let state = self.state.lock().expect("routing lock");
         state
             .roots
@@ -50,7 +51,7 @@ impl Router {
             .collect()
     }
 
-    pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
+    pub(in crate::codex) fn observe(&self, info: &session::Info) -> Arc<Attachment> {
         let mut state = self.state.lock().expect("routing lock");
         if state
             .roots
@@ -64,14 +65,14 @@ impl Router {
             state
                 .roots
                 .entry(info.summary.id.clone())
-                .or_insert_with(|| Arc::new(Observation::new(info))),
+                .or_insert_with(|| Arc::new(Attachment::new(info))),
         );
         root.refresh_metadata(info);
         state.reconcile();
         root
     }
 
-    pub(super) fn detach(&self, id: &str, expected: &Arc<Observation>) -> bool {
+    pub(in crate::codex) fn detach(&self, id: &str, expected: &Arc<Attachment>) -> bool {
         let mut state = self.state.lock().expect("routing lock");
         if !state
             .roots
@@ -84,7 +85,7 @@ impl Router {
         true
     }
 
-    pub(super) fn notification(&self, method: &str, params: &Value) {
+    pub(in crate::codex) fn notification(&self, method: &str, params: &Value) {
         let mut state = self.state.lock().expect("routing lock");
         if let Some(thread) = params
             .get("thread")
@@ -165,19 +166,19 @@ impl Router {
         }
     }
 
-    pub(super) fn event(&self, params: &Value, event: session::Event) {
+    pub(in crate::codex) fn event(&self, params: &Value, event: session::Event) {
         if let Some(id) = thread_id(params) {
             self.state.lock().expect("routing lock").deliver(id, event);
         }
     }
 
-    pub(super) fn metadata(&self, thread: types::Thread) {
+    pub(in crate::codex) fn metadata(&self, thread: types::Thread) {
         let mut state = self.state.lock().expect("routing lock");
         state.metadata(thread);
         state.reconcile();
     }
 
-    pub(super) fn metadata_failed(&self, id: &str, message: &str) {
+    pub(in crate::codex) fn metadata_failed(&self, id: &str, message: &str) {
         self.state
             .lock()
             .expect("routing lock")
@@ -245,7 +246,7 @@ impl State {
         node.updated_at = (thread.updated_at != 0).then_some(thread.updated_at);
     }
 
-    fn root_for(&self, id: &str) -> Option<&Arc<Observation>> {
+    fn root_for(&self, id: &str) -> Option<&Arc<Attachment>> {
         let mut current = id;
         let mut visited = HashSet::new();
         loop {
@@ -362,7 +363,7 @@ mod tests {
 
     fn setup() -> (
         Router,
-        Arc<Observation>,
+        Arc<Attachment>,
         tokio::sync::broadcast::Receiver<obs::Record>,
     ) {
         let (tx, _rx) = mpsc::channel(128);
@@ -386,7 +387,8 @@ mod tests {
     fn stored_unloaded_children_are_visible_without_terminal_polling() {
         let (router, root, _) = setup();
         let fixture: Value =
-            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+            serde_json::from_str(include_str!("../fixtures/codex-observation-0.159.0.json"))
+                .unwrap();
         router.metadata(serde_json::from_value(fixture["threads"][1].clone()).unwrap());
         assert!(
             root.snapshot()
@@ -407,7 +409,8 @@ mod tests {
         let (router, root, mut records) = setup();
         let mut legacy = root.subscribe();
         let fixture: Value =
-            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+            serde_json::from_str(include_str!("../fixtures/codex-observation-0.159.0.json"))
+                .unwrap();
         for notification in fixture["notifications"].as_array().unwrap() {
             router.notification(
                 notification["method"].as_str().unwrap(),
@@ -526,7 +529,8 @@ mod tests {
                 .any(|record| record.agent_id.as_deref() == Some("child"))
         );
         let fixture: Value =
-            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+            serde_json::from_str(include_str!("../fixtures/codex-observation-0.159.0.json"))
+                .unwrap();
         router.metadata(serde_json::from_value(fixture["threads"][1].clone()).unwrap());
         let records = drain(&mut records);
         assert!(records.iter().any(|record| matches!(&record.event, obs::Event::Agent { agent } if agent.id == "child" && agent.parent == (agent::Parent::Agent { id: "root".into() }))));

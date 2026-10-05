@@ -29,5 +29,6 @@ That shell exited and was not a running managed terminal. Retain this distinctio
 when testing task discovery; a model's claim that work is backgrounded is not
 evidence that the harness manages it.
 
-The tests currently exercise existing decoding and mapping. Recursive routing,
-normalized task state, and public stop controls are separate implementation steps.
+`mod.rs` tests native decoding and mapping against this capture. Recursive
+routing, task state, and stop controls are tested alongside `codex/live/`;
+`tests/codex-harness` exercises the complete subprocess and JSON-RPC paths.

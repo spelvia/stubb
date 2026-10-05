@@ -13,8 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::events;
-use super::observation::Observation;
-use super::routing::Router;
+use super::live::{Attachment, Router, tasks};
 use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
 use crate::rpc::{self, Handler};
 use crate::{Result, session};
@@ -86,15 +85,15 @@ impl AppServer {
                 let mut failed = std::collections::HashSet::new();
                 loop {
                     interval.tick().await;
-                    for (id, observation) in routing.terminal_targets() {
+                    for (id, attachment) in routing.terminal_targets() {
                         match terminal_list(&rpc, &id, request_timeout).await {
                             Ok(terminals) => {
                                 failed.remove(&id);
-                                observation.terminals(&id, terminals);
+                                attachment.terminals(&id, terminals);
                             }
                             Err(message) => {
                                 if failed.insert(id.clone()) {
-                                    observation.terminal_failure(&id, &message.to_string());
+                                    attachment.terminal_failure(&id, &message.to_string());
                                 }
                             }
                         }
@@ -122,14 +121,14 @@ impl AppServer {
         self.routing.metadata_failed(id, message);
     }
 
-    pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
-        let observation = self.routing.observe(info);
+    pub(super) fn observe(&self, info: &session::Info) -> Arc<Attachment> {
+        let attachment = self.routing.observe(info);
         self.rpc
-            .register_session(&info.summary.id, observation.clone());
-        observation
+            .register_session(&info.summary.id, attachment.clone());
+        attachment
     }
 
-    pub(super) fn detach(&self, session_id: &str, expected: &Arc<Observation>) -> bool {
+    pub(super) fn detach(&self, session_id: &str, expected: &Arc<Attachment>) -> bool {
         if !self.routing.detach(session_id, expected) {
             return false;
         }
@@ -142,16 +141,16 @@ pub(super) async fn terminal_list(
     rpc: &rpc::Connection,
     id: &str,
     timeout: Duration,
-) -> Result<Vec<super::terminals::Terminal>> {
+) -> Result<Vec<tasks::Terminal>> {
     let mut cursor = None;
     let mut seen = std::collections::HashSet::new();
     let mut terminals = vec![];
     // Never reconcile a partial pagination pass as terminal absence.
     for _ in 0..32 {
-        let page: super::terminals::Page = rpc
+        let page: tasks::Page = rpc
             .request(
                 "thread/backgroundTerminals/list",
-                &super::terminals::ListParams {
+                &tasks::ListParams {
                     thread_id: id,
                     cursor: cursor.clone(),
                     limit: 100,

@@ -8,12 +8,10 @@
 mod agents;
 mod connection;
 mod events;
-mod history;
-mod observation;
 #[cfg(test)]
-mod observation_tests;
-mod routing;
-mod terminals;
+mod fixtures;
+mod history;
+mod live;
 mod types;
 
 use std::collections::HashMap;
@@ -377,11 +375,11 @@ impl Codex {
             persisted: restored,
             summary: history::summary(response.thread),
         };
-        let observation = connection.observe(&info);
+        let attachment = connection.observe(&info);
         let driver = CodexSession {
             connection,
             thread_id,
-            observation,
+            attachment,
             request_timeout: self.config.request_timeout,
         };
         Session::new(info, Arc::new(driver))
@@ -391,18 +389,18 @@ impl Codex {
 struct CodexSession {
     connection: Arc<AppServer>,
     thread_id: String,
-    observation: Arc<observation::Observation>,
+    attachment: Arc<live::Attachment>,
     request_timeout: Duration,
 }
 
 impl CodexSession {
     async fn stop(&self, target: crate::control::Target) -> Result<crate::control::Receipt> {
-        let (receipt, request) = self.observation.begin_stop(target)?;
+        let (receipt, request) = self.attachment.begin_stop(target)?;
         let Some(request) = request else {
             return Ok(receipt);
         };
         let result: Result<bool> = match request {
-            observation::controls::Request::Agent { id, turn_id } => self
+            live::StopRequest::Agent { id, turn_id } => self
                 .connection
                 .request::<_, Value>(
                     "turn/interrupt",
@@ -414,7 +412,7 @@ impl CodexSession {
                 )
                 .await
                 .map(|_| true),
-            observation::controls::Request::Task {
+            live::StopRequest::Task {
                 owner,
                 item_id,
                 process_id,
@@ -448,7 +446,7 @@ impl CodexSession {
             }
         };
         let receipt = self
-            .observation
+            .attachment
             .stop_result(&receipt.id, result.as_ref().copied());
         result.map(|_| receipt)
     }
@@ -456,19 +454,19 @@ impl CodexSession {
 
 impl session::Driver for CodexSession {
     fn subscribe(&self) -> broadcast::Receiver<session::Event> {
-        self.observation.subscribe()
+        self.attachment.subscribe()
     }
 
     fn subscribe_records(&self) -> Result<broadcast::Receiver<crate::observation::Record>> {
-        Ok(self.observation.subscribe_records())
+        Ok(self.attachment.subscribe_records())
     }
 
     fn observation_capabilities(&self) -> Result<crate::observation::Capabilities> {
-        Ok(self.observation.capabilities())
+        Ok(self.attachment.capabilities())
     }
 
     fn snapshot(&self) -> BoxFuture<'_, Result<crate::observation::Snapshot>> {
-        Box::pin(async { Ok(self.observation.snapshot()) })
+        Box::pin(async { Ok(self.attachment.snapshot()) })
     }
 
     fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
@@ -517,16 +515,16 @@ impl session::Driver for CodexSession {
         Box::pin(async move {
             // A dead connection already announced `Closed { Exited }`.
             if !self.connection.is_alive() {
-                self.connection.detach(&self.thread_id, &self.observation);
+                self.connection.detach(&self.thread_id, &self.attachment);
                 return Ok(());
             }
             crate::rpc::EventSink::emit(
-                &*self.observation,
+                &*self.attachment,
                 session::Event::Closed {
                     reason: session::CloseReason::Client,
                 },
             );
-            if !self.connection.detach(&self.thread_id, &self.observation) {
+            if !self.connection.detach(&self.thread_id, &self.attachment) {
                 return Ok(());
             }
             self.connection

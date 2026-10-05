@@ -1,6 +1,8 @@
-use super::*;
+use super::{Attachment, state::State};
 use crate::control::{Disposition as D, Receipt, Target};
 use crate::{Error, Result, task};
+use crate::{observation as obs, session, turn};
+use tokio::sync::broadcast;
 
 pub(super) struct Pending {
     pub(super) receipt: Receipt,
@@ -9,7 +11,7 @@ pub(super) struct Pending {
     exit: Option<Option<i32>>,
 }
 
-pub(crate) enum Request {
+pub(in crate::codex) enum Request {
     Agent {
         id: String,
         turn_id: String,
@@ -21,10 +23,13 @@ pub(crate) enum Request {
     },
 }
 
-impl Observation {
-    pub(crate) fn begin_stop(&self, target: Target) -> Result<(Receipt, Option<Request>)> {
+impl Attachment {
+    pub(in crate::codex) fn begin_stop(
+        &self,
+        target: Target,
+    ) -> Result<(Receipt, Option<Request>)> {
         let mut state = self.state.lock().expect("observation lock");
-        if state.closed {
+        if state.root.closed {
             return Err(Error::Unsupported {
                 operation: "stop_closed_attachment",
             });
@@ -32,11 +37,11 @@ impl Observation {
         let before = state.aggregate_status();
         let (owner, item_id, turn_id, request, disposition) = match &target {
             Target::Agent { id } => {
-                let branch = if id == &state.root.id {
-                    &state.branch
+                let branch = if id == &state.root.agent.id {
+                    &state.root
                 } else {
                     state.children.get(id).ok_or_else(|| Error::AgentNotFound {
-                        session_id: state.root.id.clone(),
+                        session_id: state.root.agent.id.clone(),
                         id: id.clone(),
                     })?
                 };
@@ -59,7 +64,7 @@ impl Observation {
             Target::Task { id } => {
                 let (owner, item, process_id, status) =
                     state.tasks.target(id).ok_or_else(|| Error::TaskNotFound {
-                        session_id: state.root.id.clone(),
+                        session_id: state.root.agent.id.clone(),
                         id: id.clone(),
                     })?;
                 let finished = matches!(
@@ -119,7 +124,7 @@ impl Observation {
         {
             state.publish(&self.records, None, obs::Event::Task { task });
         }
-        state.control_status(before, &self.records);
+        state.publish_status_change(before, &self.records);
         state.publish(
             &self.records,
             None,
@@ -130,13 +135,13 @@ impl Observation {
         Ok((receipt, request))
     }
 
-    pub(crate) fn stop_result(
+    pub(in crate::codex) fn stop_result(
         &self,
         id: &str,
         result: std::result::Result<bool, &Error>,
     ) -> Receipt {
         let mut state = self.state.lock().expect("observation lock");
-        if state.closed {
+        if state.root.closed {
             return state.controls[id].receipt.clone();
         }
         let before = state.aggregate_status();
@@ -176,7 +181,7 @@ impl Observation {
                 state.publish(&self.records, None, obs::Event::Task { task });
             }
         }
-        state.control_status(before, &self.records);
+        state.publish_status_change(before, &self.records);
         state.publish(
             &self.records,
             None,
@@ -189,24 +194,6 @@ impl Observation {
 }
 
 impl State {
-    fn control_status(
-        &mut self,
-        before: session::Status,
-        records: &broadcast::Sender<obs::Record>,
-    ) {
-        let status = self.aggregate_status();
-        if status != before {
-            self.publish(
-                records,
-                None,
-                obs::Event::Activity {
-                    event: session::Event::Status { status },
-                    usage_scope: None,
-                },
-            );
-        }
-    }
-
     pub(super) fn control_event(
         &mut self,
         owner: &str,
@@ -217,7 +204,7 @@ impl State {
         let mut stopped = vec![];
         for pending in self.controls.values_mut().filter(|pending| {
             pending.owner == owner
-                || (owner == self.branch.root.id && matches!(event, session::Event::Closed { .. }))
+                || (owner == self.root.agent.id && matches!(event, session::Event::Closed { .. }))
         }) {
             let previous = pending.receipt.clone();
             match (&pending.receipt.target, event) {

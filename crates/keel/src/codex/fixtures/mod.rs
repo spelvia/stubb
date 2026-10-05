@@ -13,7 +13,7 @@ use crate::session::{Event, Status};
 use crate::turn::{Delta, Item, ToolDetail, ToolStatus};
 
 fn capture() -> Value {
-    serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap()
+    serde_json::from_str(include_str!("codex-observation-0.159.0.json")).unwrap()
 }
 
 #[test]

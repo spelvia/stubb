@@ -3,11 +3,12 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{agent, session, task, turn};
+use super::Attachment;
+use crate::{agent, observation as obs, session, task, turn};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ListParams<'a> {
+pub(in crate::codex) struct ListParams<'a> {
     pub thread_id: &'a str,
     pub cursor: Option<String>,
     pub limit: u32,
@@ -15,14 +16,14 @@ pub(super) struct ListParams<'a> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Page {
+pub(in crate::codex) struct Page {
     pub data: Vec<Terminal>,
     pub next_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Terminal {
+pub(in crate::codex) struct Terminal {
     pub item_id: String,
     pub process_id: String,
     pub command: String,
@@ -263,6 +264,77 @@ impl Tasks {
             }
         }
         changed
+    }
+}
+
+impl Attachment {
+    pub(in crate::codex) fn terminal_failure(&self, owner: &str, message: &str) {
+        let mut state = self.state.lock().expect("observation lock");
+        if state.root.closed {
+            return;
+        }
+        let before = state.aggregate_status();
+        for task in state.tasks.lost(Some(owner)) {
+            state.publish(&self.records, None, obs::Event::Task { task });
+        }
+        state.publish_status_change(before, &self.records);
+        state.publish(
+            &self.records,
+            None,
+            obs::Event::Activity {
+                event: session::Event::Raw {
+                    name: "keel/taskMonitoringGap".into(),
+                    payload: serde_json::json!({"agentId": owner, "message": message}),
+                },
+                usage_scope: None,
+            },
+        );
+    }
+
+    pub(in crate::codex) fn set_loaded(&self, id: &str, loaded: bool) {
+        if let Some(branch) = self
+            .state
+            .lock()
+            .expect("observation lock")
+            .children
+            .get_mut(id)
+        {
+            branch.loaded = loaded;
+        }
+    }
+
+    pub(in crate::codex) fn terminal_threads(&self) -> Vec<String> {
+        let state = self.state.lock().expect("observation lock");
+        if state.root.closed {
+            return vec![];
+        }
+        std::iter::once(state.root.agent.id.clone())
+            .chain(
+                state
+                    .children
+                    .values()
+                    .filter(|branch| !branch.closed && branch.loaded)
+                    .map(|branch| branch.agent.id.clone()),
+            )
+            .collect()
+    }
+
+    pub(in crate::codex) fn terminals(&self, owner: &str, terminals: Vec<Terminal>) {
+        let mut state = self.state.lock().expect("observation lock");
+        if state.root.closed
+            || (owner != state.root.agent.id
+                && state.children.get(owner).is_none_or(|branch| branch.closed))
+        {
+            return;
+        }
+        if !state.announced {
+            state.announce(&self.records);
+        }
+        let before = state.aggregate_status();
+        for task in state.tasks.list(owner, terminals) {
+            state.publish(&self.records, None, obs::Event::Task { task });
+        }
+        state.publish_status_change(before, &self.records);
     }
 }
 

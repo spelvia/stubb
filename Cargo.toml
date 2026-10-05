@@ -1,3 +1,4 @@
 [workspace]
 resolver = "3"
-members = ["crates/keel", "crates/keel-test-harness"]
+members = ["crates/keel", "tests/codex-harness"]
+default-members = ["crates/keel"]
