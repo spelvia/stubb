@@ -2,15 +2,17 @@
 //! session of one [`Codex`](super::Codex) provider. Sessions are routed by
 //! Codex thread id.
 
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
 use tokio::process::Command;
 
 use super::events;
+use super::observation::Observation;
 use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
 use crate::rpc::{self, Handler};
 use crate::{Result, session};
@@ -18,6 +20,7 @@ use crate::{Result, session};
 pub(crate) struct AppServer {
     rpc: rpc::Connection,
     user_agent: Option<String>,
+    observations: Mutex<HashMap<String, Arc<Observation>>>,
 }
 
 impl AppServer {
@@ -48,11 +51,45 @@ impl AppServer {
         Ok(Self {
             rpc,
             user_agent: init.user_agent,
+            observations: Mutex::new(HashMap::new()),
         })
     }
 
     pub(crate) fn user_agent(&self) -> Option<&str> {
         self.user_agent.as_deref()
+    }
+
+    pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
+        let mut observations = self.observations.lock().expect("observations lock");
+        if observations
+            .get(&info.summary.id)
+            .is_some_and(|state| state.is_closed())
+        {
+            observations.remove(&info.summary.id);
+        }
+        let observation = Arc::clone(observations.entry(info.summary.id.clone()).or_insert_with(
+            || {
+                let observation = Arc::new(Observation::new(info));
+                self.rpc
+                    .register_session(&info.summary.id, observation.clone());
+                observation
+            },
+        ));
+        observation.refresh_metadata(info);
+        observation
+    }
+
+    pub(super) fn detach(&self, session_id: &str, expected: &Arc<Observation>) -> bool {
+        let mut observations = self.observations.lock().expect("observations lock");
+        if !observations
+            .get(session_id)
+            .is_some_and(|state| Arc::ptr_eq(state, expected))
+        {
+            return false;
+        }
+        observations.remove(session_id);
+        self.rpc.unregister_session(session_id);
+        true
     }
 }
 

@@ -8,6 +8,7 @@
 mod connection;
 mod events;
 mod history;
+mod observation;
 #[cfg(test)]
 mod observation_tests;
 mod types;
@@ -355,7 +356,6 @@ impl Codex {
         };
 
         let thread_id = response.thread.id.clone();
-        let events = connection.register_session(&thread_id);
         let info = session::Info {
             model: response.model,
             effort: response.reasoning_effort,
@@ -367,10 +367,11 @@ impl Codex {
             persisted: restored,
             summary: history::summary(response.thread),
         };
+        let observation = connection.observe(&info);
         let driver = CodexSession {
             connection,
             thread_id,
-            events,
+            observation,
             request_timeout: self.config.request_timeout,
         };
         Session::new(info, Arc::new(driver))
@@ -380,13 +381,21 @@ impl Codex {
 struct CodexSession {
     connection: Arc<AppServer>,
     thread_id: String,
-    events: broadcast::Sender<session::Event>,
+    observation: Arc<observation::Observation>,
     request_timeout: Duration,
 }
 
 impl session::Driver for CodexSession {
     fn subscribe(&self) -> broadcast::Receiver<session::Event> {
-        self.events.subscribe()
+        self.observation.subscribe()
+    }
+
+    fn subscribe_records(&self) -> Result<broadcast::Receiver<crate::observation::Record>> {
+        Ok(self.observation.subscribe_records())
+    }
+
+    fn observation_capabilities(&self) -> Result<crate::observation::Capabilities> {
+        Ok(self.observation.capabilities())
     }
 
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
@@ -428,13 +437,18 @@ impl session::Driver for CodexSession {
         Box::pin(async move {
             // A dead connection already announced `Closed { Exited }`.
             if !self.connection.is_alive() {
-                self.connection.unregister_session(&self.thread_id);
+                self.connection.detach(&self.thread_id, &self.observation);
                 return Ok(());
             }
-            let _ = self.events.send(session::Event::Closed {
-                reason: session::CloseReason::Client,
-            });
-            self.connection.unregister_session(&self.thread_id);
+            crate::rpc::EventSink::emit(
+                &*self.observation,
+                session::Event::Closed {
+                    reason: session::CloseReason::Client,
+                },
+            );
+            if !self.connection.detach(&self.thread_id, &self.observation) {
+                return Ok(());
+            }
             self.connection
                 .request::<_, Value>(
                     "thread/unsubscribe",

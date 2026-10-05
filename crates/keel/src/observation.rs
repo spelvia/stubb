@@ -2,7 +2,8 @@
 //!
 //! These types describe a negotiated harness surface, not Keel orchestration.
 //! Adapters must explicitly implement observation; empty results cannot stand in
-//! for unsupported discovery. Existing adapters currently use unsupported defaults.
+//! for unsupported discovery. Check effective capabilities: adapters can cover
+//! only part of the surface, such as Codex root activity without descendants.
 
 use serde::{Deserialize, Serialize};
 

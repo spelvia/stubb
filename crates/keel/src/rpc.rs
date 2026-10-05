@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::session;
@@ -28,7 +28,12 @@ use crate::{Error, Result};
 
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
-const EVENT_BUFFER: usize = 1024;
+
+/// Synchronous delivery from the reader into the provider's state reducer.
+/// Implementations serialize state updates and publication at this boundary.
+pub(crate) trait EventSink: Send + Sync {
+    fn emit(&self, event: session::Event);
+}
 
 /// Provider-specific interpretation of messages from the child.
 pub(crate) trait Handler: Send + Sync + 'static {
@@ -56,7 +61,7 @@ struct Shared {
     handler: Arc<dyn Handler>,
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Reply>>>,
-    sessions: Mutex<HashMap<String, broadcast::Sender<session::Event>>>,
+    sessions: Mutex<HashMap<String, Arc<dyn EventSink>>>,
     next_id: AtomicI64,
     /// Set once the process is gone; holds the reason reported to callers.
     closed: Mutex<Option<String>>,
@@ -204,15 +209,13 @@ impl Connection {
         self.shared.write(&json!({ "method": method })).await
     }
 
-    /// Routes events for `session_id` to the returned channel.
-    pub(crate) fn register_session(&self, session_id: &str) -> broadcast::Sender<session::Event> {
+    /// Routes events for `session_id` directly into its provider reducer.
+    pub(crate) fn register_session(&self, session_id: &str, sink: Arc<dyn EventSink>) {
         self.shared
             .sessions
             .lock()
             .expect("sessions lock")
-            .entry(session_id.to_owned())
-            .or_insert_with(|| broadcast::channel(EVENT_BUFFER).0)
-            .clone()
+            .insert(session_id.to_owned(), sink);
     }
 
     pub(crate) fn unregister_session(&self, session_id: &str) {
@@ -324,7 +327,7 @@ impl Shared {
         let _ = reply_tx.send(reply);
     }
 
-    fn sender(&self, params: &Value) -> Option<broadcast::Sender<session::Event>> {
+    fn sender(&self, params: &Value) -> Option<Arc<dyn EventSink>> {
         let session_id = self.handler.session_id(params)?;
         self.sessions
             .lock()
@@ -337,8 +340,7 @@ impl Shared {
     fn emit(&self, params: &Value, events: Vec<session::Event>) {
         if let Some(sender) = self.sender(params) {
             for event in events {
-                // No subscribers is fine; the event is simply dropped.
-                let _ = sender.send(event);
+                sender.emit(event);
             }
         }
     }
@@ -360,7 +362,7 @@ impl Shared {
         *self.closed.lock().expect("closed lock") = Some(reason.clone());
         self.pending.lock().expect("pending lock").clear();
         for (_, events) in self.sessions.lock().expect("sessions lock").drain() {
-            let _ = events.send(session::Event::Closed {
+            events.emit(session::Event::Closed {
                 reason: session::CloseReason::Exited {
                     message: reason.clone(),
                 },
@@ -377,4 +379,81 @@ async fn read_loop(shared: Arc<Shared>, stdout: ChildStdout) {
     // Give the stderr reader a moment to capture the exit message.
     tokio::time::sleep(Duration::from_millis(100)).await;
     shared.close();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Passthrough;
+    impl Handler for Passthrough {
+        fn session_id<'a>(&self, params: &'a Value) -> Option<&'a str> {
+            params["threadId"].as_str()
+        }
+        fn notification(&self, method: &str, params: Value) -> Vec<session::Event> {
+            vec![session::Event::Raw {
+                name: method.into(),
+                payload: params,
+            }]
+        }
+        fn request(&self, id: &Value, method: &str, _: &Value) -> (Value, Option<session::Event>) {
+            (
+                json!({"id": id, "result": {}}),
+                Some(session::Event::RequestDeclined {
+                    method: method.into(),
+                    turn_id: None,
+                    summary: None,
+                }),
+            )
+        }
+    }
+
+    #[derive(Default)]
+    struct Captured(Mutex<Vec<session::Event>>);
+    impl EventSink for Captured {
+        fn emit(&self, event: session::Event) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn reader_dispatch_and_process_exit_reach_the_registered_sink_directly() {
+        let sink = Arc::new(Captured::default());
+        let shared = Shared {
+            label: "fixture",
+            handler: Arc::new(Passthrough),
+            stdin: tokio::sync::Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(HashMap::from([(
+                "root".into(),
+                sink.clone() as Arc<dyn EventSink>,
+            )])),
+            next_id: AtomicI64::new(0),
+            closed: Mutex::new(None),
+            stderr_tail: Mutex::new(String::new()),
+        };
+        shared
+            .dispatch(r#"{"method":"known","params":{"threadId":"root"}}"#)
+            .await;
+        shared
+            .dispatch(r#"{"method":"unrouted","params":{"threadId":"child"}}"#)
+            .await;
+        shared
+            .dispatch(r#"{"id":7,"method":"approval","params":{"threadId":"root"}}"#)
+            .await;
+        shared.close();
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events.len(), 3);
+        assert!(matches!(&events[0], session::Event::Raw { name, .. } if name == "known"));
+        assert!(
+            matches!(&events[1], session::Event::RequestDeclined { method, .. } if method == "approval")
+        );
+        assert!(matches!(
+            &events[2],
+            session::Event::Closed {
+                reason: session::CloseReason::Exited { .. }
+            }
+        ));
+        assert!(shared.sessions.lock().unwrap().is_empty());
+    }
 }
