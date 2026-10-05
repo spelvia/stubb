@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::provider::BoxFuture;
-use crate::{Result, turn};
+use crate::{Error, Result, observation, turn};
 
 /// A session loaded into a running harness.
 ///
@@ -45,6 +45,26 @@ impl Session {
     /// Receives events emitted after this call.
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.driver.subscribe()
+    }
+
+    /// Session-wide attributed activity, including observed descendants and
+    /// tasks. This is opt-in; the legacy subscription remains root-only.
+    /// Subscribe before sending or fetching a snapshot. Receiver lag requires
+    /// snapshot recovery rather than silently skipping records.
+    pub fn subscribe_records(&self) -> Result<broadcast::Receiver<observation::Record>> {
+        self.driver.subscribe_records()
+    }
+
+    /// Effective capabilities for this attachment, without claiming native
+    /// functionality that the adapter has not implemented.
+    pub fn observation_capabilities(&self) -> Result<observation::Capabilities> {
+        self.driver.observation_capabilities()
+    }
+
+    /// Atomic state and watermark for the attributed stream. See
+    /// [`observation::Snapshot`] for the subscribe-before-snapshot protocol.
+    pub async fn snapshot(&self) -> Result<observation::Snapshot> {
+        self.driver.snapshot().await
     }
 
     /// Starts a turn with `input`. Subscribe first to receive all of its
@@ -85,6 +105,26 @@ impl std::fmt::Debug for Session {
 pub trait Driver: Send + Sync {
     /// A receiver for events emitted from now on.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
+    /// Attributed stream. The default explicitly reports unavailable support.
+    fn subscribe_records(&self) -> Result<broadcast::Receiver<observation::Record>> {
+        Err(Error::Unsupported {
+            operation: "subscribe_records",
+        })
+    }
+    /// Effective capability inspection for this attachment.
+    fn observation_capabilities(&self) -> Result<observation::Capabilities> {
+        Err(Error::Unsupported {
+            operation: "observation_capabilities",
+        })
+    }
+    /// Atomic state from the same reducer that sequences records.
+    fn snapshot(&self) -> BoxFuture<'_, Result<observation::Snapshot>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "snapshot",
+            })
+        })
+    }
     /// Starts a turn; returns once the agent accepted it. The receipt's turn
     /// id is the one the turn's events carry and the one it is stored under.
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>>;

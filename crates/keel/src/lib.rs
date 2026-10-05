@@ -7,6 +7,9 @@
 //! Types are grouped by concept and meant to be used through their module:
 //! [`catalog`] (models and their settings), [`session`] (conversations) and
 //! [`turn`] (what happened in a conversation).
+//! Optional [`observation`] contracts describe attributed activity from
+//! [`agent`] trees and native [`task`] resources. Adapters without this support
+//! return [`Error::Unsupported`], rather than empty observation results.
 //!
 //! A typical flow: pick a [`Provider`], read its [`catalog`](Provider::catalog)
 //! to offer models, [`start`](Provider::start_session) a session,
@@ -14,15 +17,18 @@
 //! [`send`](Session::send) messages. The `examples` directory has runnable
 //! programs for each step: `models`, `sessions`, and `chat`.
 
+pub mod agent;
 pub mod catalog;
 pub mod claude;
 pub mod codex;
 mod error;
 mod files;
+pub mod observation;
 pub mod pi;
 pub mod provider;
 mod rpc;
 pub mod session;
+pub mod task;
 pub mod turn;
 
 pub use catalog::Catalog;

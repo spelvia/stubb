@@ -47,6 +47,17 @@ pub enum Error {
     #[error("no stored session {id}")]
     SessionNotFound { id: String },
 
+    /// This adapter cannot provide the requested operation. An empty result
+    /// must not be used to disguise unavailable discovery or history.
+    #[error("unsupported operation: {operation}")]
+    Unsupported { operation: &'static str },
+
+    #[error("no agent {id} in session {session_id}")]
+    AgentNotFound { session_id: String, id: String },
+
+    #[error("no task {id} in session {session_id}")]
+    TaskNotFound { session_id: String, id: String },
+
     /// Another client (for example an IDE or a second process) holds the
     /// session open for writing. Its history can still be read.
     #[error("session {id} is in use by another client: {message}")]
@@ -68,6 +79,9 @@ impl Error {
             Self::Decode { .. } => "decode_error",
             Self::InvalidSetting { .. } => "invalid_setting",
             Self::SessionNotFound { .. } => "session_not_found",
+            Self::Unsupported { .. } => "unsupported",
+            Self::AgentNotFound { .. } => "agent_not_found",
+            Self::TaskNotFound { .. } => "task_not_found",
             Self::SessionInUse { .. } => "session_in_use",
             Self::Io(_) => "io_error",
         }
