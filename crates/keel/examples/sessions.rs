@@ -5,6 +5,7 @@
 //! ```sh
 //! cargo run --example sessions -- codex                 # sessions in the current directory
 //! cargo run --example sessions -- claude --cwd /some/repo
+//! cargo run --example sessions -- pi --cwd /some/repo
 //! cargo run --example sessions -- codex <session-id>    # print that session's turns
 //! ```
 
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 
 use keel::claude::{Claude, ClaudeConfig};
 use keel::codex::{Codex, CodexConfig};
+use keel::pi::{Pi, PiConfig};
 use keel::turn::{Item, ToolDetail, UserContent};
 use keel::{Provider, session, turn};
 
@@ -31,8 +33,9 @@ async fn main() -> keel::Result<()> {
     let provider: Box<dyn Provider> = match name.as_str() {
         "codex" => Box::new(Codex::new(CodexConfig::default())),
         "claude" => Box::new(Claude::new(ClaudeConfig::default())),
+        "pi" => Box::new(Pi::new(PiConfig::default())),
         other => {
-            eprintln!("unknown provider {other:?}; use codex or claude");
+            eprintln!("unknown provider {other:?}; use codex, claude or pi");
             std::process::exit(2);
         }
     };

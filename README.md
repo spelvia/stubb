@@ -1,8 +1,10 @@
 # Keel
 
-Keel is an embeddable Rust library for connecting applications to coding agents. It drives each agent through its native protocol (`codex app-server`, Claude Code's stream-json mode) and exposes them through one provider-neutral interface, `keel::Provider`.
+Keel is an embeddable Rust library for connecting applications to coding agents. It drives each agent through its native protocol (`codex app-server`, Claude Code's stream-json mode, Pi's RPC mode) and exposes them through one provider-neutral interface, `keel::Provider`.
 
-It provides shared model discovery, sessions, streaming, and (soon) permission handling for Ahab, Yomi, and other applications. Codex and Claude Code are supported; the host only needs their `codex` and `claude` executables installed and signed in.
+It provides shared model discovery, sessions, streaming, and (soon) permission handling for Ahab, Yomi, and other applications. Codex, Claude Code and Pi are supported; the host only needs their `codex`, `claude` and `pi` executables installed and signed in (for Pi: with its model providers configured).
+
+Pi models are named `<provider>/<model id>` and its thinking levels are the effort levels. Pi has no approval step, so unlike the other two, a Pi session runs its tools (commands, file edits) without asking.
 
 ## Examples
 
@@ -19,6 +21,7 @@ cargo run --example models -- claude
 cargo run --example sessions -- codex --cwd /path/to/repo
 cargo run --example chat -- codex --model gpt-6-luna --effort medium
 cargo run --example chat -- claude --resume <session-id>
+cargo run --example chat -- pi --effort low
 ```
 
 ## Development

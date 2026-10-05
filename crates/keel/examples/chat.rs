@@ -4,18 +4,20 @@
 //! ```sh
 //! cargo run --example chat -- codex --model gpt-6-luna --effort medium
 //! cargo run --example chat -- claude --model claude-sonnet-4-6 --effort medium
+//! cargo run --example chat -- pi --model homelab-vllm/swift-1.5-27b-heretic --effort low
 //! cargo run --example chat -- codex --resume <session-id>
 //! cargo run --example chat -- claude --prompt "Reply with exactly: hello world"   # one turn, then exit
 //! ```
 //!
-//! Keel cannot approve tool use yet, so commands the agent wants to run are
-//! declined and shown as such.
+//! Keel cannot approve tool use yet, so commands Codex or Claude Code want to
+//! run are declined and shown as such. Pi has no approvals and runs them.
 
 use std::io::Write;
 use std::path::PathBuf;
 
 use keel::claude::{Claude, ClaudeConfig};
 use keel::codex::{Codex, CodexConfig};
+use keel::pi::{Pi, PiConfig};
 use keel::turn::{Item, ToolDetail};
 use keel::{Provider, Session, session, turn};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -36,8 +38,9 @@ async fn main() -> keel::Result<()> {
     let provider: Box<dyn Provider> = match options.provider.as_str() {
         "codex" => Box::new(Codex::new(CodexConfig::default())),
         "claude" => Box::new(Claude::new(ClaudeConfig::default())),
+        "pi" => Box::new(Pi::new(PiConfig::default())),
         other => {
-            eprintln!("unknown provider {other:?}; use codex or claude");
+            eprintln!("unknown provider {other:?}; use codex, claude or pi");
             std::process::exit(2);
         }
     };

@@ -2,7 +2,7 @@
 //!
 //! Keel drives coding agent harnesses through their native protocols and
 //! exposes them through one provider-neutral interface, [`Provider`].
-//! Codex and Claude Code are supported.
+//! Codex, Claude Code and Pi are supported.
 //!
 //! Types are grouped by concept and meant to be used through their module:
 //! [`catalog`] (models and their settings), [`session`] (conversations) and
@@ -19,6 +19,7 @@ pub mod claude;
 pub mod codex;
 mod error;
 mod files;
+pub mod pi;
 pub mod provider;
 mod rpc;
 pub mod session;

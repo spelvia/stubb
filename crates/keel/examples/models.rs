@@ -4,12 +4,14 @@
 //! ```sh
 //! cargo run --example models -- codex
 //! cargo run --example models -- claude
+//! cargo run --example models -- pi
 //! ```
 
 use keel::Provider;
 use keel::catalog::FastMode;
 use keel::claude::{Claude, ClaudeConfig};
 use keel::codex::{Codex, CodexConfig};
+use keel::pi::{Pi, PiConfig};
 
 #[tokio::main]
 async fn main() -> keel::Result<()> {
@@ -19,8 +21,9 @@ async fn main() -> keel::Result<()> {
     let provider: Box<dyn Provider> = match name.as_str() {
         "codex" => Box::new(Codex::new(CodexConfig::default())),
         "claude" => Box::new(Claude::new(ClaudeConfig::default())),
+        "pi" => Box::new(Pi::new(PiConfig::default())),
         other => {
-            eprintln!("unknown provider {other:?}; use codex or claude");
+            eprintln!("unknown provider {other:?}; use codex, claude or pi");
             std::process::exit(2);
         }
     };
