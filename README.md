@@ -33,3 +33,10 @@ sh .githooks/install
 ```
 
 The hooks check Rust formatting and Clippy before each commit and require Conventional Commit subjects.
+
+The `contract` test checks that every installed provider behaves as the `Provider` and `Driver` docs promise. It starts the real agents and runs short turns, so it is ignored by default:
+
+```sh
+cargo test --test contract -- --ignored --nocapture
+KEEL_CONTRACT_PROVIDERS=pi cargo test --test contract -- --ignored --nocapture
+```

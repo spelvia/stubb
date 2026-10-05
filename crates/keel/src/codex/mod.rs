@@ -137,7 +137,8 @@ impl Codex {
     pub async fn read_session(&self, id: &str) -> Result<session::Summary> {
         let response: types::ThreadReadResponse = self
             .request("thread/read", &types::ThreadIdParams { thread_id: id })
-            .await?;
+            .await
+            .map_err(|error| unknown_session(id, error))?;
         Ok(history::summary(response.thread))
     }
 
@@ -154,7 +155,8 @@ impl Codex {
                     items_view: "full",
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| unknown_session(id, error))?;
         Ok(turn::Page {
             turns: response.data.into_iter().map(history::turn).collect(),
             next_cursor: response.next_cursor,
@@ -201,7 +203,7 @@ impl Codex {
                         message,
                     }
                 }
-                other => other,
+                other => unknown_session(id, other),
             })?;
         Ok(self.open(connection, response, true))
     }
@@ -487,6 +489,23 @@ impl Provider for Codex {
     }
 }
 
+/// Codex reports an unknown or malformed thread id only in its error
+/// message; Keel reports it as [`Error::SessionNotFound`].
+fn unknown_session(id: &str, error: Error) -> Error {
+    const UNKNOWN: [&str; 4] = [
+        "thread not loaded",
+        "no rollout found",
+        "invalid thread id",
+        "invalid session id",
+    ];
+    match error {
+        Error::Rpc { message, .. } if UNKNOWN.iter().any(|prefix| message.starts_with(prefix)) => {
+            Error::SessionNotFound { id: id.to_owned() }
+        }
+        other => other,
+    }
+}
+
 fn build_catalog(user_agent: Option<String>, models: Vec<types::Model>) -> Catalog {
     Catalog {
         provider: ProviderInfo {
@@ -561,6 +580,27 @@ mod tests {
     use super::*;
 
     const FIXTURE: &str = include_str!("fixtures/codex-model-list-0.159.3.json");
+
+    #[test]
+    fn reports_unknown_threads_as_not_found() {
+        let rpc = |message: &str| Error::Rpc {
+            method: "thread/read".to_owned(),
+            code: -32600,
+            message: message.to_owned(),
+        };
+        assert!(matches!(
+            unknown_session("t1", rpc("thread not loaded: t1")),
+            Error::SessionNotFound { id } if id == "t1"
+        ));
+        assert!(matches!(
+            unknown_session("t1", rpc("no rollout found for thread id t1")),
+            Error::SessionNotFound { .. }
+        ));
+        assert!(matches!(
+            unknown_session("t1", rpc("rate limited")),
+            Error::Rpc { .. }
+        ));
+    }
 
     fn fixture_catalog() -> Catalog {
         let page: ModelListResponse = serde_json::from_str(FIXTURE).expect("fixture decodes");

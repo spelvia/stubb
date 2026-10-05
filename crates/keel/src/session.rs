@@ -76,12 +76,20 @@ impl std::fmt::Debug for Session {
 /// Keel's providers implement it; so can a host that adds its own provider,
 /// for example a mock for its tests. [`Session`] forwards to these methods,
 /// so their contracts are the ones documented there.
+///
+/// A turn's events: [`Event::Status`] `Active`, then [`Event::TurnStart`]
+/// with the receipt's turn id, the user message as an [`Event::ItemEnd`],
+/// the agent's items, and finally [`Event::TurnEnd`]. The session reports
+/// [`Event::Status`] `Idle` once the turn is over. Every item event names
+/// that turn.
 pub trait Driver: Send + Sync {
     /// A receiver for events emitted from now on.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
-    /// Starts a turn; returns once the agent accepted it.
+    /// Starts a turn; returns once the agent accepted it. The receipt's turn
+    /// id is the one the turn's events carry and the one it is stored under.
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>>;
-    /// Asks the agent to stop a running turn.
+    /// Asks the agent to stop a running turn, which then ends with
+    /// [`turn::Status::Interrupted`].
     fn interrupt<'a>(&'a self, turn_id: &'a str) -> BoxFuture<'a, Result<()>>;
     /// Detaches from the session, announcing [`Event::Closed`] with
     /// [`CloseReason::Client`] if it was still live.

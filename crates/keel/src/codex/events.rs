@@ -21,8 +21,12 @@ pub(super) fn from_notification(method: &str, params: Value) -> Event {
         }),
         "turn/started" => decode::<types::TurnNotification>(&params)
             .map(|n| Event::TurnStart { turn_id: n.turn.id }),
+        // Items were already delivered by the item events.
         "turn/completed" => decode::<types::TurnNotification>(&params).map(|n| Event::TurnEnd {
-            turn: history::turn(n.turn),
+            turn: turn::Turn {
+                items: Vec::new(),
+                ..history::turn(n.turn)
+            },
         }),
         "item/started" => decode::<types::ItemNotification>(&params).map(|n| Event::ItemStart {
             turn_id: n.turn_id,
@@ -133,11 +137,13 @@ mod tests {
 
         let completed = from_notification(
             "turn/completed",
-            json!({ "threadId": "t", "turn": { "id": "u", "items": [], "itemsView": "notLoaded", "status": "completed" } }),
+            json!({ "threadId": "t", "turn": { "id": "u", "itemsView": "full", "status": "completed",
+                "items": [{ "type": "agentMessage", "id": "i", "text": "hello" }] } }),
         );
+        // The items were delivered by item events, so TurnEnd does not repeat them.
         assert!(matches!(
             completed,
-            Event::TurnEnd { turn } if turn.id == "u" && turn.status == turn::Status::Completed
+            Event::TurnEnd { turn } if turn.id == "u" && turn.status == turn::Status::Completed && turn.items.is_empty()
         ));
     }
 
