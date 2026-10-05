@@ -115,6 +115,13 @@ impl AppServer {
         self.user_agent.as_deref()
     }
 
+    pub(super) fn stored_agent(&self, thread: super::types::Thread) {
+        self.routing.metadata(thread);
+    }
+    pub(super) fn discovery_failed(&self, id: &str, message: &str) {
+        self.routing.metadata_failed(id, message);
+    }
+
     pub(super) fn observe(&self, info: &session::Info) -> Arc<Observation> {
         let observation = self.routing.observe(info);
         self.rpc

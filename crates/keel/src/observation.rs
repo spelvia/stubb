@@ -283,7 +283,7 @@ mod tests {
         ));
 
         // No executable exists; these defaults must not attempt a CLI launch.
-        let provider = crate::codex::Codex::new(crate::codex::CodexConfig {
+        let provider = crate::pi::Pi::new(crate::pi::PiConfig {
             executable: "/nonexistent/keel-contract-test".into(),
             ..Default::default()
         });

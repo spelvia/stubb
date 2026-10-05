@@ -26,6 +26,7 @@ struct State {
     referenced_by: HashMap<String, HashSet<String>>,
     pending: VecDeque<(String, session::Event)>,
     requested: HashSet<String>,
+    loaded: HashMap<String, bool>,
 }
 
 impl Router {
@@ -94,6 +95,10 @@ impl Router {
         let Some(id) = thread_id(params) else {
             return;
         };
+        state.loaded.insert(
+            id.into(),
+            method != "thread/closed" && params["status"]["type"] != "notLoaded",
+        );
         if let Some(item) = params.get("item") {
             let parent = text(item, "senderThreadId").unwrap_or_else(|| id.into());
             let origin = agent::Origin {
@@ -212,6 +217,10 @@ impl State {
     }
 
     fn metadata(&mut self, thread: types::Thread) {
+        self.loaded.insert(
+            thread.id.clone(),
+            !matches!(thread.status, types::ThreadStatus::NotLoaded),
+        );
         let spawn = &thread.source["subAgent"]["thread_spawn"];
         let parent = thread
             .parent_thread_id
@@ -290,6 +299,9 @@ impl State {
                 }
                 for node in chain.into_iter().rev() {
                     root.upsert_agent(node.clone());
+                    if let Some(loaded) = self.loaded.get(&node.id) {
+                        root.set_loaded(&node.id, *loaded);
+                    }
                     announced.insert(node.id.as_str());
                 }
             }
@@ -368,6 +380,26 @@ mod tests {
 
     fn drain(records: &mut tokio::sync::broadcast::Receiver<obs::Record>) -> Vec<obs::Record> {
         std::iter::from_fn(|| records.try_recv().ok()).collect()
+    }
+
+    #[test]
+    fn stored_unloaded_children_are_visible_without_terminal_polling() {
+        let (router, root, _) = setup();
+        let fixture: Value =
+            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+        router.metadata(serde_json::from_value(fixture["threads"][1].clone()).unwrap());
+        assert!(
+            root.snapshot()
+                .agents
+                .iter()
+                .any(|agent| agent.id == "child")
+        );
+        assert_eq!(root.terminal_threads(), vec!["root"]);
+        router.notification(
+            "thread/status/changed",
+            &json!({"threadId":"child","status":{"type":"active","activeFlags":[]}}),
+        );
+        assert!(root.terminal_threads().contains(&"child".to_string()));
     }
 
     #[test]

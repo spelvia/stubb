@@ -105,6 +105,11 @@ pub(crate) struct ThreadListParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     pub source_kinds: Vec<&'static str>,
+    pub sort_direction: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_thread_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ancestor_thread_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

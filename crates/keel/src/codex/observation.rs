@@ -33,6 +33,7 @@ struct State {
 struct Branch {
     root: agent::Summary,
     closed: bool,
+    loaded: bool,
     status: session::Status,
     turns: BTreeMap<String, Materialized>,
 }
@@ -77,6 +78,7 @@ impl Observation {
                         updated_at: Some(info.summary.updated_at),
                     },
                     closed: false,
+                    loaded: true,
                     status: info.summary.status,
                     turns: BTreeMap::new(),
                 },
@@ -206,6 +208,18 @@ impl Observation {
         );
     }
 
+    pub(super) fn set_loaded(&self, id: &str, loaded: bool) {
+        if let Some(branch) = self
+            .state
+            .lock()
+            .expect("observation lock")
+            .children
+            .get_mut(id)
+        {
+            branch.loaded = loaded;
+        }
+    }
+
     pub(super) fn terminal_threads(&self) -> Vec<String> {
         let state = self.state.lock().expect("observation lock");
         if state.closed {
@@ -216,7 +230,7 @@ impl Observation {
                 state
                     .children
                     .values()
-                    .filter(|branch| !branch.closed)
+                    .filter(|branch| !branch.closed && branch.loaded)
                     .map(|branch| branch.root.id.clone()),
             )
             .collect()
@@ -266,6 +280,7 @@ impl Observation {
                 root: agent.clone(),
                 status: session::Status::Idle,
                 closed: false,
+                loaded: true,
                 turns: BTreeMap::new(),
             });
         // Metadata reads do not overwrite a newer observed work outcome.
@@ -309,6 +324,7 @@ impl Observation {
                 return;
             }
         }
+        branch.loaded = true;
         let previous = branch.root.clone();
         branch.reduce(&event);
         let replacement = (previous != branch.root).then(|| branch.root.clone());
@@ -619,7 +635,7 @@ fn capabilities() -> obs::Capabilities {
         support: obs::Support::Supported,
         coverage: obs::Coverage::Partial,
         reason: Some("Live root and descendant activity on the attached app-server connection".into()),
-        gaps: vec!["Stored descendant discovery on resume is not implemented".into(), "Early traffic buffering is bounded; transcript gaps are reported as raw observationGap events".into()],
+        gaps: vec!["Stored discovery on resume is bounded to 5000 native descendants; gaps are reported".into(), "Early traffic buffering is bounded; transcript gaps are reported as raw observationGap events".into()],
     };
     let tasks = obs::Feature {
         support: obs::Support::Supported, coverage: obs::Coverage::Partial,
@@ -639,7 +655,10 @@ fn capabilities() -> obs::Capabilities {
         nested_discovery: live.clone(),
         agent_lifecycle: live.clone(),
         agent_transcript: live,
-        agent_history: unavailable.clone(),
+        agent_history: obs::Feature { support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Read-only native stored descendant discovery and owned transcript pagination".into()),
+            gaps: vec!["Only native persisted threads are discoverable; unreported historical outcomes remain unknown".into()],
+        },
         task_discovery: tasks.clone(),
         task_lifecycle: tasks.clone(),
         task_output: tasks,

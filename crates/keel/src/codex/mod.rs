@@ -5,6 +5,7 @@
 //! requests and every session; if it exits, the next call starts a new one
 //! and live sessions receive [`session::Event::Closed`].
 
+mod agents;
 mod connection;
 mod events;
 mod history;
@@ -130,6 +131,9 @@ impl Codex {
                     sort_key: "updated_at",
                     cwd: query.cwd.map(|cwd| cwd.to_string_lossy().into_owned()),
                     source_kinds: SESSION_SOURCES.to_vec(),
+                    sort_direction: "desc",
+                    parent_thread_id: None,
+                    ancestor_thread_id: None,
                 },
             )
             .await?;
@@ -210,7 +214,11 @@ impl Codex {
                 }
                 other => unknown_session(id, other),
             })?;
-        Ok(self.open(connection, response, true))
+        let session = self.open(Arc::clone(&connection), response, true);
+        if let Err(error) = self.discover_stored(&connection, id).await {
+            connection.discovery_failed(id, &error.to_string());
+        }
+        Ok(session)
     }
 
     pub async fn shutdown(&self) {
@@ -558,6 +566,22 @@ impl Provider for Codex {
         query: turn::Query,
     ) -> BoxFuture<'a, Result<turn::Page>> {
         Box::pin(Codex::list_turns(self, id, query))
+    }
+
+    fn list_agents<'a>(
+        &'a self,
+        root: &'a str,
+        query: crate::agent::Query,
+    ) -> BoxFuture<'a, Result<crate::agent::Page>> {
+        Box::pin(Codex::list_agents(self, root, query))
+    }
+    fn list_agent_turns<'a>(
+        &'a self,
+        root: &'a str,
+        id: &'a str,
+        query: turn::Query,
+    ) -> BoxFuture<'a, Result<crate::agent::TurnPage>> {
+        Box::pin(Codex::list_agent_turns(self, root, id, query))
     }
 
     fn start_session(&self, spec: session::Spec) -> BoxFuture<'_, Result<Session>> {
