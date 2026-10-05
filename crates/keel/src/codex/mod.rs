@@ -387,6 +387,65 @@ struct CodexSession {
     request_timeout: Duration,
 }
 
+impl CodexSession {
+    async fn stop(&self, target: crate::control::Target) -> Result<crate::control::Receipt> {
+        let (receipt, request) = self.observation.begin_stop(target)?;
+        let Some(request) = request else {
+            return Ok(receipt);
+        };
+        let result: Result<bool> = match request {
+            observation::controls::Request::Agent { id, turn_id } => self
+                .connection
+                .request::<_, Value>(
+                    "turn/interrupt",
+                    &types::TurnInterruptParams {
+                        thread_id: &id,
+                        turn_id: &turn_id,
+                    },
+                    self.request_timeout,
+                )
+                .await
+                .map(|_| true),
+            observation::controls::Request::Task {
+                owner,
+                item_id,
+                process_id,
+            } => {
+                // Check native item/process membership before sending the private
+                // reference. The native protocol has no atomic item guard.
+                match connection::terminal_list(&self.connection, &owner, self.request_timeout)
+                    .await
+                {
+                    Ok(terminals)
+                        if terminals.iter().any(|terminal| {
+                            terminal.item_id == item_id && terminal.process_id == process_id
+                        }) =>
+                    {
+                        #[derive(serde::Deserialize)]
+                        struct Response {
+                            terminated: bool,
+                        }
+                        self.connection
+                            .request::<_, Response>(
+                                "thread/backgroundTerminals/terminate",
+                                &serde_json::json!({"threadId":owner,"processId":process_id}),
+                                self.request_timeout,
+                            )
+                            .await
+                            .map(|response| response.terminated)
+                    }
+                    Ok(_) => Ok(false),
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        let receipt = self
+            .observation
+            .stop_result(&receipt.id, result.as_ref().copied());
+        result.map(|_| receipt)
+    }
+}
+
 impl session::Driver for CodexSession {
     fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.observation.subscribe()
@@ -398,6 +457,13 @@ impl session::Driver for CodexSession {
 
     fn observation_capabilities(&self) -> Result<crate::observation::Capabilities> {
         Ok(self.observation.capabilities())
+    }
+
+    fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(self.stop(crate::control::Target::Agent { id: id.into() }))
+    }
+    fn stop_task<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(self.stop(crate::control::Target::Task { id: id.into() }))
     }
 
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {

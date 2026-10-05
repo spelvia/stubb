@@ -37,6 +37,9 @@ pub struct Record {
     rename_all_fields = "camelCase"
 )]
 pub enum Event {
+    Control {
+        receipt: crate::control::Receipt,
+    },
     Agent {
         agent: agent::Summary,
     },

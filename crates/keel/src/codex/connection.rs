@@ -94,7 +94,7 @@ impl AppServer {
                             }
                             Err(message) => {
                                 if failed.insert(id.clone()) {
-                                    observation.terminal_failure(&id, &message);
+                                    observation.terminal_failure(&id, &message.to_string());
                                 }
                             }
                         }
@@ -131,11 +131,11 @@ impl AppServer {
     }
 }
 
-async fn terminal_list(
+pub(super) async fn terminal_list(
     rpc: &rpc::Connection,
     id: &str,
     timeout: Duration,
-) -> std::result::Result<Vec<super::terminals::Terminal>, String> {
+) -> Result<Vec<super::terminals::Terminal>> {
     let mut cursor = None;
     let mut seen = std::collections::HashSet::new();
     let mut terminals = vec![];
@@ -151,16 +151,25 @@ async fn terminal_list(
                 },
                 timeout.min(Duration::from_secs(5)),
             )
-            .await
-            .map_err(|error| error.to_string())?;
+            .await?;
         terminals.extend(page.data);
         match page.next_cursor {
             None => return Ok(terminals),
             Some(next) if seen.insert(next.clone()) => cursor = Some(next),
-            Some(_) => return Err("Repeated terminal pagination cursor".into()),
+            Some(_) => {
+                return Err(crate::Error::InvalidSetting {
+                    setting: "terminal pagination",
+                    value: id.into(),
+                    reason: "Repeated cursor".into(),
+                });
+            }
         }
     }
-    Err("Terminal pagination exceeded 32 pages".into())
+    Err(crate::Error::InvalidSetting {
+        setting: "terminal pagination",
+        value: id.into(),
+        reason: "Exceeded 32 pages".into(),
+    })
 }
 
 impl Deref for AppServer {

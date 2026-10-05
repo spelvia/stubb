@@ -67,6 +67,18 @@ impl Session {
         self.driver.snapshot().await
     }
 
+    /// Interrupts the agent's currently observed native turn. Does not close
+    /// its context or recursively stop descendants/tasks. Follow control records
+    /// for confirmation; an accepted request alone is not a final outcome.
+    pub async fn stop_agent(&self, id: &str) -> Result<crate::control::Receipt> {
+        self.driver.stop_agent(id).await
+    }
+
+    /// Terminates an observed native task by opaque attachment-scoped ID.
+    pub async fn stop_task(&self, id: &str) -> Result<crate::control::Receipt> {
+        self.driver.stop_task(id).await
+    }
+
     /// Starts a turn with `input`. Subscribe first to receive all of its
     /// events; the receipt only confirms that the turn started.
     pub async fn send(&self, input: turn::Input) -> Result<turn::Receipt> {
@@ -122,6 +134,20 @@ pub trait Driver: Send + Sync {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "snapshot",
+            })
+        })
+    }
+    fn stop_agent<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "stop_agent",
+            })
+        })
+    }
+    fn stop_task<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "stop_task",
             })
         })
     }

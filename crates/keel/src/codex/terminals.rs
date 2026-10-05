@@ -36,7 +36,7 @@ pub(super) struct Tasks {
 struct Entry {
     summary: task::Summary,
     // Native references stay private; public IDs are attachment-scoped UUIDs.
-    _process_id: String,
+    process_id: String,
 }
 #[derive(Default)]
 struct Command {
@@ -46,6 +46,30 @@ struct Command {
 }
 
 impl Tasks {
+    pub(super) fn target(&self, id: &str) -> Option<(String, String, String, task::Status)> {
+        self.entries
+            .iter()
+            .find(|(_, entry)| entry.summary.id == id)
+            .map(|((owner, item), entry)| {
+                (
+                    owner.clone(),
+                    item.clone(),
+                    entry.process_id.clone(),
+                    entry.summary.status,
+                )
+            })
+    }
+    pub(super) fn status(&mut self, id: &str, status: task::Status) -> Option<task::Summary> {
+        let entry = self
+            .entries
+            .values_mut()
+            .find(|entry| entry.summary.id == id)?;
+        if entry.summary.status == status {
+            return None;
+        }
+        entry.summary.status = status;
+        Some(entry.summary.clone())
+    }
     pub(super) fn summaries(&self) -> Vec<task::Summary> {
         self.entries
             .values()
@@ -54,9 +78,12 @@ impl Tasks {
     }
 
     pub(super) fn running(&self) -> bool {
-        self.entries
-            .values()
-            .any(|entry| entry.summary.status == task::Status::Running)
+        self.entries.values().any(|entry| {
+            matches!(
+                entry.summary.status,
+                task::Status::Running | task::Status::Stopping
+            )
+        })
     }
 
     pub(super) fn list(&mut self, owner: &str, terminals: Vec<Terminal>) -> Vec<task::Summary> {
@@ -68,6 +95,7 @@ impl Tasks {
         for terminal in terminals {
             let key = (owner.into(), terminal.item_id.clone());
             let command = self.commands.get(&key);
+            let previous_status = self.entries.get(&key).map(|entry| entry.summary.status);
             let summary = task::Summary {
                 id: self
                     .entries
@@ -94,7 +122,20 @@ impl Tasks {
                 // A delayed list cannot resurrect an item that has already ended.
                 status: command
                     .and_then(|command| command.outcome)
-                    .unwrap_or(task::Status::Running),
+                    .map(|outcome| {
+                        if previous_status == Some(task::Status::Stopped) {
+                            task::Status::Stopped
+                        } else {
+                            outcome
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        if previous_status == Some(task::Status::Stopping) {
+                            task::Status::Stopping
+                        } else {
+                            task::Status::Running
+                        }
+                    }),
                 output: command
                     .and_then(|command| command.output)
                     .unwrap_or(task::OutputAvailability::Unknown),
@@ -110,14 +151,17 @@ impl Tasks {
                 key,
                 Entry {
                     summary,
-                    _process_id: terminal.process_id,
+                    process_id: terminal.process_id,
                 },
             );
         }
         for ((agent, item), entry) in &mut self.entries {
             if agent == owner
                 && !present.contains(item)
-                && entry.summary.status == task::Status::Running
+                && matches!(
+                    entry.summary.status,
+                    task::Status::Running | task::Status::Stopping
+                )
             {
                 entry.summary.status = task::Status::Unknown;
                 changed.push(entry.summary.clone());
@@ -190,7 +234,9 @@ impl Tasks {
         };
         let previous = entry.summary.clone();
         entry.summary.origin = command.origin.clone();
-        if let Some(outcome) = command.outcome {
+        if let Some(outcome) = command.outcome
+            && entry.summary.status != task::Status::Stopped
+        {
             entry.summary.status = outcome;
         }
         if let Some(output) = command.output {
@@ -207,7 +253,10 @@ impl Tasks {
         let mut changed = vec![];
         for ((agent, _), entry) in &mut self.entries {
             if owner.is_none_or(|owner| owner == agent)
-                && entry.summary.status == task::Status::Running
+                && matches!(
+                    entry.summary.status,
+                    task::Status::Running | task::Status::Stopping
+                )
             {
                 entry.summary.status = task::Status::Unknown;
                 changed.push(entry.summary.clone());

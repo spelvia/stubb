@@ -21,6 +21,7 @@ pub mod agent;
 pub mod catalog;
 pub mod claude;
 pub mod codex;
+pub mod control;
 mod error;
 mod files;
 pub mod observation;

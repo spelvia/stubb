@@ -10,6 +10,8 @@ use tokio::sync::broadcast;
 use crate::rpc::EventSink;
 use crate::{agent, observation as obs, session, turn};
 
+pub(super) mod controls;
+
 const BUFFER: usize = 1024;
 
 pub(super) struct Observation {
@@ -25,6 +27,7 @@ struct State {
     children: BTreeMap<String, Branch>,
     announced: bool,
     tasks: super::terminals::Tasks,
+    controls: BTreeMap<String, controls::Pending>,
 }
 
 struct Branch {
@@ -80,6 +83,7 @@ impl Observation {
                 children: BTreeMap::new(),
                 announced: false,
                 tasks: Default::default(),
+                controls: BTreeMap::new(),
             }),
             legacy: broadcast::channel(BUFFER).0,
             records: broadcast::channel(BUFFER).0,
@@ -106,6 +110,14 @@ impl Observation {
         }
         for task in state.tasks.summaries() {
             state.publish(&self.records, None, obs::Event::Task { task });
+        }
+        for receipt in state
+            .controls
+            .values()
+            .map(|pending| pending.receipt.clone())
+            .collect::<Vec<_>>()
+        {
+            state.publish(&self.records, None, obs::Event::Control { receipt });
         }
         receiver
     }
@@ -300,6 +312,7 @@ impl Observation {
         for task in updates {
             state.publish(&self.records, None, obs::Event::Task { task });
         }
+        state.control_event(id, &event, &self.records);
         let status = state.aggregate_status();
         if (old_status != status || matches!(event, session::Event::Status { .. }))
             && !(root_event && matches!(event, session::Event::Closed { .. }))
@@ -598,9 +611,17 @@ fn capabilities() -> obs::Capabilities {
         task_lifecycle: tasks.clone(),
         task_output: tasks,
         task_history: unavailable.clone(),
-        stop_agent: unavailable.clone(),
+        stop_agent: obs::Feature {
+            support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Interrupts the captured active native turn; does not close agent contexts".into()),
+            gaps: vec!["Owned tasks and descendants are governed by native interrupt semantics".into()],
+        },
         stop_subtree: unavailable.clone(),
-        stop_task: unavailable,
+        stop_task: obs::Feature {
+            support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Native background-terminal termination with receipt/outcome tracking".into()),
+            gaps: vec!["Native termination targets a process reference without an atomic item-generation guard".into()],
+        },
     }
 }
 
@@ -644,6 +665,106 @@ mod tests {
                 error: None,
             },
         }
+    }
+
+    #[test]
+    fn controls_bind_generations_and_preserve_completion_before_ack() {
+        use crate::control::{Disposition as D, Target};
+        let observation = make_observation();
+        observation.emit(session::Event::TurnStart {
+            turn_id: "old".into(),
+        });
+        let (receipt, request) = observation
+            .begin_stop(Target::Agent { id: "root".into() })
+            .unwrap();
+        assert!(request.is_some());
+        assert_eq!(
+            observation
+                .begin_stop(Target::Agent { id: "root".into() })
+                .unwrap()
+                .0
+                .id,
+            receipt.id
+        );
+        observation.emit(end("old"));
+        observation.emit(session::Event::TurnStart {
+            turn_id: "new".into(),
+        });
+        assert_eq!(
+            observation.stop_result(&receipt.id, Ok(true)).disposition,
+            D::AlreadyFinished
+        );
+        assert_eq!(
+            observation.state.lock().unwrap().root.status,
+            agent::Status::Running
+        );
+        let (new, _) = observation
+            .begin_stop(Target::Agent { id: "root".into() })
+            .unwrap();
+        let mut interrupted = end("new");
+        if let session::Event::TurnEnd { turn } = &mut interrupted {
+            turn.status = turn::Status::Interrupted;
+        }
+        observation.emit(interrupted);
+        assert_eq!(
+            observation.stop_result(&new.id, Ok(true)).disposition,
+            D::Confirmed
+        );
+        assert!(matches!(
+            observation.begin_stop(Target::Task {
+                id: "foreign".into()
+            }),
+            Err(crate::Error::TaskNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn stop_terminal_waits_for_native_ack_and_keeps_stopped_on_late_list() {
+        use crate::control::{Disposition as D, Target};
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/codex-observation-0.159.0.json")).unwrap();
+        let observation = make_observation();
+        let page: super::super::terminals::Page =
+            serde_json::from_value(fixture["terminalList"].clone()).unwrap();
+        observation.terminals("root", page.data);
+        let id = observation.state.lock().unwrap().tasks.summaries()[0]
+            .id
+            .clone();
+        let (receipt, request) = observation
+            .begin_stop(Target::Task { id: id.clone() })
+            .unwrap();
+        assert!(request.is_some());
+        let notification = fixture["terminalNotifications"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap();
+        observation.emit(super::super::events::from_notification(
+            notification["method"].as_str().unwrap(),
+            notification["params"].clone(),
+        ));
+        assert_eq!(
+            observation.state.lock().unwrap().tasks.summaries()[0].status,
+            crate::task::Status::Failed
+        );
+        assert_eq!(
+            observation.stop_result(&receipt.id, Ok(true)).disposition,
+            D::Confirmed
+        );
+        let page: super::super::terminals::Page =
+            serde_json::from_value(fixture["terminalList"].clone()).unwrap();
+        observation.terminals("root", page.data);
+        assert_eq!(
+            observation.state.lock().unwrap().tasks.summaries()[0].status,
+            crate::task::Status::Stopped
+        );
+        assert!(
+            observation
+                .begin_stop(Target::Task { id })
+                .unwrap()
+                .1
+                .is_none()
+        );
     }
 
     #[test]
