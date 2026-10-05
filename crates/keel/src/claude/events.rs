@@ -2,7 +2,7 @@
 //!
 //! The SDK streams raw API events (`stream_event`): content blocks open,
 //! receive deltas and close. Text and thinking become agent-message and
-//! reasoning items; a tool call becomes a tool item once its input is
+//! thinking items; a tool call becomes a tool item once its input is
 //! complete and finishes when the matching `tool_result` arrives. Full
 //! `assistant` messages repeat streamed content and are only used when a
 //! message was not streamed. Messages from sub-agents are skipped.
@@ -161,9 +161,10 @@ impl SessionState {
                     ),
                     Some("thinking") => (
                         BlockKind::Thinking,
-                        Some(Item::Reasoning {
+                        Some(Item::Thinking {
                             id: item_id.clone(),
-                            summary: Vec::new(),
+                            text: String::new(),
+                            summarized: false,
                         }),
                     ),
                     Some("tool_use") => (
@@ -216,7 +217,7 @@ impl SessionState {
                         vec![Event::ItemDelta {
                             turn_id,
                             item_id: block.id.clone(),
-                            delta: turn::Delta::Reasoning { text: delta },
+                            delta: turn::Delta::Thinking { text: delta },
                         }]
                     }
                     (BlockKind::Tool { .. }, Some("input_json_delta")) => {
@@ -246,13 +247,10 @@ impl SessionState {
             },
             BlockKind::Thinking => Event::ItemEnd {
                 turn_id,
-                item: Item::Reasoning {
+                item: Item::Thinking {
                     id: block.id,
-                    summary: if block.buffer.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![block.buffer]
-                    },
+                    text: block.buffer,
+                    summarized: false,
                 },
             },
             BlockKind::Tool { name } => {
@@ -298,9 +296,10 @@ impl SessionState {
                 }),
                 Some("thinking") => events.push(Event::ItemEnd {
                     turn_id: self.turn(),
-                    item: Item::Reasoning {
+                    item: Item::Thinking {
                         id,
-                        summary: text(block, "thinking").into_iter().collect(),
+                        text: text(block, "thinking").unwrap_or_default(),
+                        summarized: false,
                     },
                 }),
                 Some("tool_use") => events.extend(self.tool_started(

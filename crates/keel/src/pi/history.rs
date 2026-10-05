@@ -135,9 +135,10 @@ fn assistant(turn: &mut turn::Turn, message: &Value, calls: &mut HashMap<String,
                 text: text(block, "text").trim().to_owned(),
             }),
             Some("thinking") if !text(block, "thinking").trim().is_empty() => {
-                turn.items.push(Item::Reasoning {
+                turn.items.push(Item::Thinking {
                     id,
-                    summary: vec![text(block, "thinking").trim().to_owned()],
+                    text: text(block, "thinking").trim().to_owned(),
+                    summarized: false,
                 })
             }
             Some("toolCall") => {
@@ -252,7 +253,7 @@ mod tests {
         assert_eq!(turns[0].id, "5");
         assert_eq!(turns[0].items.len(), 4);
         assert!(
-            matches!(&turns[0].items[1], Item::Reasoning { id, summary } if id == "7:0" && summary[0] == "use ls")
+            matches!(&turns[0].items[1], Item::Thinking { id, text, .. } if id == "7:0" && text == "use ls")
         );
         assert!(matches!(
             &turns[0].items[2],

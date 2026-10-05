@@ -62,9 +62,13 @@ pub enum Item {
         id: String,
         text: String,
     },
-    Reasoning {
+    /// What the model thought before acting.
+    Thinking {
         id: String,
-        summary: Vec<String>,
+        text: String,
+        /// The provider reported a summary of its thinking rather than the
+        /// thinking itself, as Codex does.
+        summarized: bool,
     },
     Plan {
         id: String,
@@ -166,8 +170,8 @@ pub enum FileChangeKind {
 pub enum Delta {
     /// Text of an [`Item::AgentMessage`].
     Text { text: String },
-    /// Text of an [`Item::Reasoning`] summary.
-    Reasoning { text: String },
+    /// Text of an [`Item::Thinking`].
+    Thinking { text: String },
     /// Output of a [`ToolDetail::Command`].
     Output { text: String },
 }

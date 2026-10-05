@@ -116,9 +116,10 @@ fn assistant_items(turn: &mut turn::Turn, uuid: &str, content: &Value) {
                 id,
                 text: text("text").to_owned(),
             }),
-            Some("thinking") if !text("thinking").is_empty() => turn.items.push(Item::Reasoning {
+            Some("thinking") if !text("thinking").is_empty() => turn.items.push(Item::Thinking {
                 id,
-                summary: vec![text("thinking").to_owned()],
+                text: text("thinking").to_owned(),
+                summarized: false,
             }),
             Some("tool_use") => {
                 let input = block.get("input").cloned().unwrap_or(Value::Null);

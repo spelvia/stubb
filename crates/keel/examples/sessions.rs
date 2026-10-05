@@ -123,7 +123,14 @@ fn print_item(item: &Item) {
             }
         }
         Item::AgentMessage { text, .. } => println!("agent: {}", one_line(text, 200)),
-        Item::Reasoning { .. } => println!("  (reasoning)"),
+        Item::Thinking { summarized, .. } => println!(
+            "  ({})",
+            if *summarized {
+                "thinking summary"
+            } else {
+                "thinking"
+            }
+        ),
         Item::Plan { text, .. } => println!("  plan: {}", one_line(text, 120)),
         Item::ToolCall(call) => {
             let what = match &call.detail {

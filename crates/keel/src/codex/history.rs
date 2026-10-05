@@ -74,9 +74,11 @@ pub(super) fn item(raw: Value) -> Item {
             id: item.id,
             text: item.text,
         }),
-        "reasoning" => decode::<types::ReasoningItem>(&raw).map(|item| Item::Reasoning {
+        // Codex only reports a summary of its reasoning, in parts.
+        "reasoning" => decode::<types::ReasoningItem>(&raw).map(|item| Item::Thinking {
             id: item.id,
-            summary: item.summary,
+            text: item.summary.join("\n\n"),
+            summarized: true,
         }),
         "commandExecution" => decode::<types::CommandExecutionItem>(&raw).map(|item| {
             Item::ToolCall(ToolCall {

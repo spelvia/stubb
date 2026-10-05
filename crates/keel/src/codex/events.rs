@@ -43,7 +43,7 @@ pub(super) fn from_notification(method: &str, params: Value) -> Event {
             decode::<types::DeltaNotification>(&params).map(|n| Event::ItemDelta {
                 turn_id: n.turn_id,
                 item_id: n.item_id,
-                delta: turn::Delta::Reasoning { text: n.delta },
+                delta: turn::Delta::Thinking { text: n.delta },
             })
         }
         "item/commandExecution/outputDelta" => {

@@ -4,11 +4,12 @@
 //! across Pi's own inner turns, retries and compaction. Pi does not name
 //! user messages, so a turn is named after the timestamp Pi gives the
 //! prompt's user message, which is also stored; the turn starts once Pi
-//! echoes that message. Text and thinking
-//! blocks stream as agent-message and reasoning items; their final content
-//! comes from the assistant's `message_end`. A tool call becomes an item
-//! when Pi starts executing it and finishes with `tool_execution_end`.
-//! Anything else passes through as [`Event::Raw`].
+//! echoes that message.
+//!
+//! Text and thinking blocks stream as agent-message and thinking items;
+//! their final content comes from the assistant's `message_end`. A tool
+//! call becomes an item when Pi starts executing it and finishes with
+//! `tool_execution_end`. Anything else passes through as [`Event::Raw`].
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -220,9 +221,10 @@ impl SessionState {
             },
             Some("thinking_start") => Event::ItemStart {
                 turn_id,
-                item: Item::Reasoning {
+                item: Item::Thinking {
                     id: item_id,
-                    summary: Vec::new(),
+                    text: String::new(),
+                    summarized: false,
                 },
             },
             Some("text_delta") => Event::ItemDelta {
@@ -233,7 +235,7 @@ impl SessionState {
             Some("thinking_delta") => Event::ItemDelta {
                 turn_id,
                 item_id,
-                delta: turn::Delta::Reasoning { text: delta() },
+                delta: turn::Delta::Thinking { text: delta() },
             },
             // Tool calls become items when they run; block ends are taken
             // from the final message.
@@ -259,17 +261,11 @@ impl SessionState {
                     id,
                     text: text(block, "text").trim().to_owned(),
                 },
-                Some("thinking") => {
-                    let thinking = text(block, "thinking").trim();
-                    Item::Reasoning {
-                        id,
-                        summary: if thinking.is_empty() {
-                            Vec::new()
-                        } else {
-                            vec![thinking.to_owned()]
-                        },
-                    }
-                }
+                Some("thinking") => Item::Thinking {
+                    id,
+                    text: text(block, "thinking").trim().to_owned(),
+                    summarized: false,
+                },
                 _ => continue,
             };
             events.push(Event::ItemEnd {
@@ -468,7 +464,7 @@ mod tests {
             json!({ "type": "thinking_start", "contentIndex": 0 }),
         );
         assert!(
-            matches!(&opened[0], Event::ItemStart { item: Item::Reasoning { id, .. }, .. } if id == "7:0")
+            matches!(&opened[0], Event::ItemStart { item: Item::Thinking { id, .. }, .. } if id == "7:0")
         );
         let delta = update(
             &mut state,
@@ -476,7 +472,7 @@ mod tests {
         );
         assert!(matches!(
             &delta[0],
-            Event::ItemDelta { delta: turn::Delta::Reasoning { text }, turn_id, .. } if text == "use ls" && turn_id == "5"
+            Event::ItemDelta { delta: turn::Delta::Thinking { text }, turn_id, .. } if text == "use ls" && turn_id == "5"
         ));
         assert!(update(&mut state, json!({ "type": "toolcall_start", "contentIndex": 1, "id": "call1", "toolName": "bash" })).is_empty());
 
@@ -489,7 +485,7 @@ mod tests {
             "usage": { "input": 100, "output": 20, "cacheRead": 50, "cacheWrite": 0, "reasoning": 5 },
         } }));
         assert!(
-            matches!(&ended[0], Event::ItemEnd { item: Item::Reasoning { summary, .. }, .. } if summary[0] == "use ls")
+            matches!(&ended[0], Event::ItemEnd { item: Item::Thinking { text, summarized: false, .. }, .. } if text == "use ls")
         );
         assert!(matches!(
             &ended[1],
