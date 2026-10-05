@@ -11,7 +11,7 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use super::events;
-use super::types::{ClientInfo, InitializeParams, InitializeResponse};
+use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
 use crate::rpc::{self, Handler};
 use crate::{Result, session};
 
@@ -34,6 +34,11 @@ impl AppServer {
                         name: "keel".to_owned(),
                         title: Some("Keel".to_owned()),
                         version: env!("CARGO_PKG_VERSION").to_owned(),
+                    },
+                    // Descendant discovery and background-terminal APIs require
+                    // this opt-in. It exposes protocol methods, not tool permissions.
+                    capabilities: InitializeCapabilities {
+                        experimental_api: true,
                     },
                 },
                 request_timeout,

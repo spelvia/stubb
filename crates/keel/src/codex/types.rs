@@ -12,6 +12,13 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InitializeParams {
     pub client_info: ClientInfo,
+    pub capabilities: InitializeCapabilities,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InitializeCapabilities {
+    pub experimental_api: bool,
 }
 
 #[derive(Debug, Serialize)]
