@@ -28,6 +28,12 @@ const EVENT_BUFFER: usize = 1024;
 const DECLINED: &str =
     "Keel cannot approve tool use yet, so this request was declined. Continue without it.";
 
+/// Request full descendant conversations on the existing native stream.
+/// This adds observation traffic; it does not create agents or change permissions.
+pub(super) fn initialize_request() -> Value {
+    json!({ "subtype": "initialize", "forwardSubagentText": true })
+}
+
 /// Which conversation the process works on.
 pub(super) enum Conversation<'a> {
     /// No session (used to read the model catalog).

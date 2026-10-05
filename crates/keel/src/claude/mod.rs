@@ -7,6 +7,8 @@
 //! files. All mapping onto Keel's types happens here.
 
 mod events;
+#[cfg(test)]
+mod fixtures;
 mod history;
 mod process;
 mod store;
@@ -237,10 +239,7 @@ impl Claude {
             fast_mode: settings.fast_mode,
         })?;
         let init = match process
-            .control(
-                json!({ "subtype": "initialize" }),
-                self.config.startup_timeout,
-            )
+            .control(process::initialize_request(), self.config.startup_timeout)
             .await
         {
             Ok(init) => init,
