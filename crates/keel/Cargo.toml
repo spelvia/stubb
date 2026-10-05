@@ -2,7 +2,7 @@
 name = "keel"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 license = "Apache-2.0"
 description = "Rust middleware for connecting applications to agent harnesses over ACP"
 
