@@ -1,0 +1,28 @@
+name: Bug report
+description: Report unexpected behavior in Keel.
+labels: [bug, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior. Include relevant errors or logs, with secrets removed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide steps or a small code example that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the Keel version or commit, provider and CLI version, operating system, and Rust version where relevant.

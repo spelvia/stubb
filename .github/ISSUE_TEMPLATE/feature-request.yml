@@ -1,0 +1,23 @@
+# Adapted from rust-lang/cargo's feature request form:
+# https://github.com/rust-lang/cargo/blob/master/.github/ISSUE_TEMPLATE/feature_request.yml
+name: Feature request
+description: Suggest a feature or improvement for Keel.
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the use case and what Keel cannot do today. Include the affected providers, if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you would like. An example is helpful; a complete API design is not required.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional context, alternatives, related issues, or native protocol references.
