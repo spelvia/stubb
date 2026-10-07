@@ -30,5 +30,4 @@ when testing task discovery; a model's claim that work is backgrounded is not
 evidence that the harness manages it.
 
 `mod.rs` tests native decoding and mapping against this capture. Recursive
-routing, task state, and stop controls are tested alongside `codex/live/`;
-`tests/harness` exercises the complete subprocess and JSON-RPC paths.
+routing, task state, and stop controls are tested alongside `codex/live/`.

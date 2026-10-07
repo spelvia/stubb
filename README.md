@@ -80,9 +80,7 @@ materialization. `claude/fixtures/` retains selected native stream-json traffic
 and regression tests. These adapters share the public contracts while keeping
 their protocol-specific state private.
 
-The unpublished fake-process workspace member lives in
-[`tests/harness`](tests/harness). Root Cargo commands default to the
-library; use `--workspace` to include the harness tests:
+Run the library tests with:
 
 ```sh
 cargo test --workspace --locked
@@ -95,6 +93,23 @@ sh .githooks/install
 ```
 
 The hooks check Rust formatting and Clippy before each commit and require Conventional Commit subjects.
+
+GitHub Actions runs on pushes to `main` and pull requests targeting `main`.
+It runs lint first, then Linux builds and tests on Rust 1.99.0
+(the declared minimum) and current stable. Once both pass, rustdoc/doctests,
+package verification, and dependency checks run in parallel. `CI passed` is the
+combined check to require in branch protection; it fails if any stage fails or
+is skipped. The workflows use the lockfile and do not run ignored provider tests.
+
+Dependency checks use `cargo-deny` and `deny.toml` for advisories, licenses, and
+sources; duplicate versions produce warnings. The same check runs independently
+on `main` on Mondays at 06:23 UTC and can be started manually for `main` from Actions. Dependabot opens
+weekly Cargo and GitHub Actions update PRs, grouping compatible Cargo updates.
+For a local scan, install `cargo-deny` and run:
+
+```sh
+cargo deny --all-features --locked check
+```
 
 The `contract` test checks that every installed provider behaves as the `Provider` and `Driver` docs promise. It starts the real agents and runs short turns, so it is ignored by default:
 

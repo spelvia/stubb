@@ -26,7 +26,6 @@ https://code.claude.com/docs/en/agent-sdk/subagents
 https://code.claude.com/docs/en/sub-agents
 
 The adapter now supports attributed trees, tasks/logs, native stops, stored
-history and resume. `tests/harness` exercises its real subprocess/reader with
-scripted stream-json races and failures. Real Sonnet 4.6 checks through
+history and resume. Real Sonnet 4.6 checks through
 keel-tester remain separate; this captured file is intentionally limited to the
 selected native protocol traffic described above.
