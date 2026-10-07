@@ -187,6 +187,31 @@ impl ClaudeProcess {
 
     /// Sends a `control_request` and waits for its response payload.
     pub(super) async fn control(&self, request: Value, timeout: Duration) -> Result<Value> {
+        self.control_guarded(request, timeout, None).await
+    }
+
+    pub(super) async fn stop(
+        &self,
+        target: crate::control::Target,
+        timeout: Duration,
+    ) -> Result<crate::control::Receipt> {
+        let request = self.shared.observation.begin_stop(target)?;
+        let Some(native) = request.native else {
+            return Ok(self.shared.observation.stop_receipt(&request.id));
+        };
+        let result = self
+            .control_guarded(native, timeout, Some(&request.id))
+            .await
+            .map(|_| ());
+        Ok(self.shared.observation.finish_stop(&request.id, result))
+    }
+
+    async fn control_guarded(
+        &self,
+        request: Value,
+        timeout: Duration,
+        stop: Option<&str>,
+    ) -> Result<Value> {
         let method = request
             .get("subtype")
             .and_then(Value::as_str)
@@ -206,7 +231,7 @@ impl ClaudeProcess {
             .expect("pending lock")
             .insert(id.clone(), reply_tx);
         let message = json!({ "type": "control_request", "request_id": id, "request": request });
-        if let Err(error) = self.shared.write(&message).await {
+        if let Err(error) = self.shared.write_guarded(&message, stop).await {
             self.shared
                 .pending
                 .lock()
@@ -291,7 +316,16 @@ impl Drop for ClaudeProcess {
 
 impl Shared {
     async fn write(&self, message: &Value) -> Result<()> {
+        self.write_guarded(message, None).await
+    }
+
+    async fn write_guarded(&self, message: &Value, stop: Option<&str>) -> Result<()> {
         let mut stdin = self.stdin.lock().await;
+        if stop.is_some_and(|id| !self.observation.stop_is_current(id)) {
+            return Err(Error::Unsupported {
+                operation: "stale_stop_generation",
+            });
+        }
         let Some(stdin) = stdin.as_mut() else {
             return Err(Error::ProcessExited {
                 stderr: self.closed_reason().unwrap_or_default(),

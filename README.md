@@ -44,7 +44,10 @@ cursors that can follow growing files. Missing or expired output is reported
 separately from task status; agent-run output uses agent transcripts.
 
 Claude coverage is currently limited to this attachment. Stored descendant
-history and individual stop controls remain unsupported. Unknown native task
+history remains unsupported in this checkpoint. Native root interrupts and
+individual agent/task stops return receipts that distinguish acknowledgement
+from matching terminal evidence. Stop requests capture the current execution;
+Keel does not simulate subtree termination. Unknown native task
 fields remain available as raw observations.
 Snapshots restore agent state and active items; completed transcripts are not
 replayed. Keel forwards native observation and controls; delegation and commands

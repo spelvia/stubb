@@ -16,19 +16,20 @@ const EARLY_BYTES: usize = 1024 * 1024;
 
 pub(super) struct State {
     pub(super) root: Branch,
-    children: BTreeMap<String, Branch>,
+    pub(super) children: BTreeMap<String, Branch>,
     /// A spawning tool call's ID identifies its delegated conversation.
     delegated: HashMap<String, String>,
     /// Native tool ownership, not inferred from depth or descriptions.
     owners: HashMap<String, agent::Origin>,
     commands: HashMap<String, String>,
-    tasks: super::tasks::Tasks,
+    pub(super) tasks: super::tasks::Tasks,
+    pub(super) controls: BTreeMap<String, super::controls::Pending>,
     early: VecDeque<Value>,
     early_bytes: usize,
     stream_id: String,
     seq: u64,
     announced: bool,
-    closed: bool,
+    pub(super) closed: bool,
     gap: bool,
 }
 
@@ -53,6 +54,7 @@ impl State {
             owners: HashMap::new(),
             commands: HashMap::new(),
             tasks: Default::default(),
+            controls: Default::default(),
             early: VecDeque::new(),
             early_bytes: 0,
             stream_id: uuid::Uuid::new_v4().to_string(),
@@ -63,7 +65,7 @@ impl State {
         }
     }
 
-    fn publish(&mut self, records: &Records, owner: Option<String>, event: obs::Event) {
+    pub(super) fn publish(&mut self, records: &Records, owner: Option<String>, event: obs::Event) {
         // The short-lived catalog process has no observed session.
         if self.root.agent.id.is_empty() {
             return;
@@ -110,9 +112,17 @@ impl State {
         for task in self.tasks.summaries() {
             self.publish(records, None, obs::Event::Task { task });
         }
+        for receipt in self
+            .controls
+            .values()
+            .map(|p| p.receipt.clone())
+            .collect::<Vec<_>>()
+        {
+            self.publish(records, None, obs::Event::Control { receipt });
+        }
     }
 
-    fn status(&self) -> session::Status {
+    pub(super) fn status(&self) -> session::Status {
         if self.closed {
             session::Status::NotLoaded
         } else if self.tasks.running()
@@ -123,6 +133,20 @@ impl State {
             session::Status::Active
         } else {
             session::Status::Idle
+        }
+    }
+
+    pub(super) fn publish_status(&mut self, before: session::Status, records: &Records) {
+        let status = self.status();
+        if status != before {
+            self.publish(
+                records,
+                None,
+                obs::Event::Activity {
+                    event: session::Event::Status { status },
+                    usage_scope: None,
+                },
+            );
         }
     }
 
@@ -148,7 +172,12 @@ impl State {
                 .chain(self.children.values())
                 .flat_map(Branch::active_turns)
                 .collect(),
-            pending_controls: vec![],
+            pending_controls: self
+                .controls
+                .values()
+                .filter(|p| p.receipt.is_pending())
+                .map(|p| p.receipt.clone())
+                .collect(),
             capabilities,
         }
     }
@@ -250,6 +279,7 @@ impl State {
             );
         }
         if root {
+            self.root_outcome(&event, records);
             let _ = legacy.send(event);
         }
         self.resolve_parents(records);
@@ -481,6 +511,7 @@ impl State {
         }
         self.tasks.repair(&self.owners, &self.commands);
         self.publish_task_changes(old_tasks, records);
+        self.task_outcome(message, records);
         if old_status != self.status() {
             self.publish(
                 records,
@@ -648,6 +679,7 @@ impl State {
                 records,
             );
         }
+        self.controls_lost(records);
         let old_tasks = self.tasks.summaries();
         self.tasks.lost();
         self.publish_task_changes(old_tasks, records);

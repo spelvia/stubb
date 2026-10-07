@@ -1,5 +1,6 @@
 //! One native stream-json attachment: attributed activity and recursive agents.
 
+mod controls;
 mod state;
 mod tasks;
 #[cfg(test)]
@@ -52,6 +53,38 @@ impl Attachment {
 
     pub(super) fn snapshot(&self) -> obs::Snapshot {
         self.state.lock().expect("observation lock").snapshot()
+    }
+
+    pub(super) fn begin_stop(
+        &self,
+        target: crate::control::Target,
+    ) -> crate::Result<controls::Request> {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .begin_stop(target, &self.records)
+    }
+    pub(super) fn finish_stop(
+        &self,
+        id: &str,
+        result: crate::Result<()>,
+    ) -> crate::control::Receipt {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .finish_stop(id, result, &self.records)
+    }
+    pub(super) fn stop_is_current(&self, id: &str) -> bool {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .stop_is_current(id)
+    }
+    pub(super) fn stop_receipt(&self, id: &str) -> crate::control::Receipt {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .stop_receipt(id)
     }
 
     pub(super) fn output_binding(&self, id: &str) -> crate::Result<super::output::Binding> {
@@ -151,8 +184,12 @@ pub(super) fn capabilities() -> obs::Capabilities {
             gaps: vec!["Native output paths may be missing or expired; agent runs use owned transcripts rather than raw JSONL logs".into()],
         },
         task_history: unavailable.clone(),
-        stop_agent: unavailable.clone(),
+        stop_agent: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,
+            reason:Some("Native root interrupt and stop_task for captured delegated executions".into()),
+            gaps:vec!["Native stop_task has no atomic generation guard; task scope is checked before writing and outcomes are correlated".into(),"Owned work follows native stop semantics; no context closure or simulated subtree stop".into()]},
         stop_subtree: unavailable.clone(),
-        stop_task: unavailable,
+        stop_task: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,
+            reason:Some("Native stop_task with acknowledged and confirmed outcomes".into()),
+            gaps:vec!["Requires native task and spawning tool identities; acknowledgement alone cannot prove termination".into()]},
     }
 }

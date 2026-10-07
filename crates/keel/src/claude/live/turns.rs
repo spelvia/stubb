@@ -64,6 +64,7 @@ impl Branch {
     pub(super) fn reduce(&mut self, event: &session::Event) {
         match event {
             session::Event::TurnStart { turn_id } => {
+                self.current = Some(turn_id.clone());
                 self.turn(turn_id);
                 self.agent.status = agent::Status::Running;
             }
@@ -106,6 +107,9 @@ impl Branch {
                 }
             }
             session::Event::TurnEnd { turn } => {
+                if self.current.as_ref() == Some(&turn.id) {
+                    self.current = None;
+                }
                 let m = self.turn(&turn.id);
                 m.ended = true;
                 m.turn = turn::Turn {

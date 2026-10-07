@@ -163,7 +163,9 @@ impl Tasks {
                 } else if e.generation > 1 {
                     return;
                 }
-                if let Some(status) = status(m["status"].as_str()) {
+                if let Some(status) = status(m["status"].as_str())
+                    && !(e.output_final && e.terminal)
+                {
                     e.summary.status = status;
                     e.terminal = is_terminal(status);
                     e.output_final = e.terminal;

@@ -412,6 +412,27 @@ impl session::Driver for ClaudeSession {
         Box::pin(async { Ok(self.process.snapshot()) })
     }
 
+    fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(async move {
+            self.process
+                .stop(
+                    crate::control::Target::Agent { id: id.into() },
+                    self.request_timeout,
+                )
+                .await
+        })
+    }
+    fn stop_task<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+        Box::pin(async move {
+            self.process
+                .stop(
+                    crate::control::Target::Task { id: id.into() },
+                    self.request_timeout,
+                )
+                .await
+        })
+    }
+
     fn task_output<'a>(
         &'a self,
         id: &'a str,

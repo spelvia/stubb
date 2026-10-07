@@ -92,7 +92,7 @@ fn captured_tree_keeps_native_ids_models_and_exact_legacy_projection() {
     assert_eq!(snapshot.tasks.len(), 4);
     assert_eq!(
         snapshot.capabilities.stop_agent.support,
-        obs::Support::Unsupported
+        obs::Support::Supported
     );
 }
 
@@ -412,4 +412,176 @@ fn native_status_completion_does_not_promise_that_log_writes_are_final() {
     assert!(!live.output_binding("cmd").unwrap().terminal);
     finish(&live, "cmd", "bash", "completed");
     assert!(live.output_binding("cmd").unwrap().terminal);
+}
+
+#[test]
+fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
+    use crate::control::{Disposition as D, Target};
+    let live = Attachment::new("root");
+    live.turn_started("turn", "child");
+    tool(&live, None, "spawn");
+    start(&live, "child", "spawn");
+    let first = live
+        .begin_stop(Target::Agent { id: "child".into() })
+        .unwrap();
+    assert_eq!(
+        first.native,
+        Some(json!({"subtype":"stop_task","task_id":"child"}))
+    );
+    let duplicate = live
+        .begin_stop(Target::Agent { id: "child".into() })
+        .unwrap();
+    assert_eq!(first.id, duplicate.id);
+    assert!(duplicate.native.is_none());
+    let task = live
+        .begin_stop(Target::Task { id: "child".into() })
+        .unwrap();
+    assert!(task.native.is_none());
+    assert_ne!(first.id, task.id);
+    assert_eq!(live.finish_stop(&first.id, Ok(())).disposition, D::Accepted);
+    assert_eq!(live.stop_receipt(&task.id).disposition, D::Accepted);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Stopping
+    );
+    finish(&live, "child", "spawn", "stopped");
+    assert_eq!(live.stop_receipt(&first.id).disposition, D::Confirmed);
+    assert_eq!(live.stop_receipt(&task.id).disposition, D::Confirmed);
+    assert!(live.snapshot().pending_controls.is_empty());
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Stopped
+    );
+    assert_eq!(
+        live.begin_stop(Target::Task { id: "child".into() })
+            .unwrap()
+            .native,
+        None
+    );
+}
+
+#[test]
+fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
+    use crate::control::{Disposition as D, Target};
+    for (status, expected) in [
+        ("completed", D::AlreadyFinished),
+        ("stopped", D::Confirmed),
+        ("failed", D::AlreadyFinished),
+    ] {
+        let live = Attachment::new("root");
+        tool(&live, None, "spawn");
+        start(&live, "child", "spawn");
+        let request = live
+            .begin_stop(Target::Task { id: "child".into() })
+            .unwrap();
+        finish(&live, "child", "spawn", status);
+        assert!(!live.stop_is_current(&request.id));
+        assert_eq!(live.finish_stop(&request.id, Ok(())).disposition, expected);
+        assert_ne!(
+            live.snapshot().tasks[0].status,
+            crate::task::Status::Stopping
+        );
+    }
+    let live = Attachment::new("root");
+    tool(&live, None, "spawn");
+    start(&live, "child", "spawn");
+    let request = live
+        .begin_stop(Target::Task { id: "child".into() })
+        .unwrap();
+    tool(&live, None, "resume");
+    start(&live, "child", "resume");
+    assert!(!live.stop_is_current(&request.id));
+    assert_eq!(
+        live.finish_stop(&request.id, Ok(())).disposition,
+        D::Unconfirmed
+    );
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Running
+    );
+    finish(&live, "child", "spawn", "stopped");
+    assert_eq!(live.stop_receipt(&request.id).disposition, D::Unconfirmed);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Running
+    );
+}
+
+#[test]
+fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
+    use crate::control::{Disposition as D, Target};
+    let live = Attachment::new("root");
+    tool(&live, None, "spawn");
+    start(&live, "child", "spawn");
+    let request = live
+        .begin_stop(Target::Task { id: "child".into() })
+        .unwrap();
+    assert_eq!(
+        live.finish_stop(
+            &request.id,
+            Err(crate::Error::Unsupported {
+                operation: "timeout"
+            })
+        )
+        .disposition,
+        D::Unconfirmed
+    );
+    finish(&live, "child", "spawn", "stopped");
+    assert_eq!(live.stop_receipt(&request.id).disposition, D::Confirmed);
+    tool(&live, None, "resume");
+    start(&live, "child", "resume");
+    let request = live
+        .begin_stop(Target::Task { id: "child".into() })
+        .unwrap();
+    live.close(session::CloseReason::Client);
+    assert_eq!(
+        live.finish_stop(&request.id, Ok(())).disposition,
+        D::Unconfirmed
+    );
+    finish(&live, "child", "resume", "stopped");
+    assert_eq!(live.stop_receipt(&request.id).disposition, D::Unconfirmed);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Unknown
+    );
+    assert!(matches!(
+        live.begin_stop(Target::Agent {
+            id: "missing".into()
+        }),
+        Err(crate::Error::AgentNotFound { .. })
+    ));
+    assert!(matches!(
+        live.begin_stop(Target::Task {
+            id: "missing".into()
+        }),
+        Err(crate::Error::TaskNotFound { .. })
+    ));
+}
+
+#[test]
+fn root_stop_is_scoped_to_current_native_turn() {
+    use crate::control::{Disposition as D, Target};
+    let live = Attachment::new("root");
+    let idle = live
+        .begin_stop(Target::Agent { id: "root".into() })
+        .unwrap();
+    assert!(idle.native.is_none());
+    assert_eq!(live.stop_receipt(&idle.id).disposition, D::NotRunning);
+    live.turn_started("first", "work");
+    let request = live
+        .begin_stop(Target::Agent { id: "root".into() })
+        .unwrap();
+    assert_eq!(request.native, Some(json!({"subtype":"interrupt"})));
+    assert_eq!(
+        live.finish_stop(&request.id, Ok(())).disposition,
+        D::Accepted
+    );
+    live.turn_failed("first", "interrupted");
+    // A generic turn failure is natural terminal evidence, not an interruption claim.
+    assert_eq!(
+        live.stop_receipt(&request.id).disposition,
+        D::AlreadyFinished
+    );
+    live.turn_started("second", "continue");
+    assert!(!live.stop_is_current(&request.id));
 }
