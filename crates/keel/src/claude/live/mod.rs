@@ -35,7 +35,14 @@ impl Attachment {
 
     pub(super) fn configure(&self, info: &session::Info) {
         let mut state = self.state.lock().expect("observation lock");
-        state.root.agent.model = Some(info.model.clone());
+        // A requested alias is not an effective native model. Restore only a
+        // previously reported model until this process reports its own.
+        if state.root.agent.model.is_none()
+            && info.restored
+            && info.summary.model.as_deref() == Some(info.model.as_str())
+        {
+            state.root.agent.model = info.summary.model.clone();
+        }
         state.root.agent.created_at = Some(info.summary.created_at);
         state.root.agent.updated_at = Some(info.summary.updated_at);
         state.announce_root(&self.records);

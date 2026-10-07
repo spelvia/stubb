@@ -88,7 +88,9 @@ async fn recursive_interleaving_keeps_owned_items_logs_and_legacy_root_projectio
     let f = Fixture::open("normal").await;
     let mut records = f.session.subscribe_records().unwrap();
     let mut legacy = f.session.subscribe();
+    assert_eq!(f.session.snapshot().await.unwrap().agents[0].model, None);
     let s = f.seed().await;
+    assert_eq!(s.agents[0].model.as_deref(), Some("claude-sonnet-4-6"));
     assert_eq!(s.status, session::Status::Active);
     assert_eq!(
         s.agents.iter().find(|a| a.id == "grand").unwrap().parent,

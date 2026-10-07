@@ -592,11 +592,16 @@ impl State {
                 self.finish_agent(message, records, legacy);
             }
         }
-        if let Some(model) = message
-            .pointer("/message/model")
+        let native_model = if message["type"] == "assistant" {
+            message.pointer("/message/model")
+        } else if message["type"] == "system" && message["subtype"] == "init" {
+            message.get("model")
+        } else {
+            None
+        };
+        if let Some(model) = native_model
             .and_then(Value::as_str)
             .filter(|m| !m.is_empty() && !m.starts_with('<'))
-            && message["type"] == "assistant"
             && self.root.agent.model.as_deref() != Some(model)
         {
             self.root.agent.model = Some(model.into());

@@ -24,7 +24,9 @@ Older native CLIs can omit fields needed for parts of this contract. Check
 | `Capabilities::stop_subtree` | Unsupported: no atomic native subtree stop |
 
 Agent summaries retain native IDs, creation ancestry and effective models when
-reported. Their status describes the latest work, so a completed agent can run
+reported. Requested model aliases alone do not establish an effective model;
+the initial summary can leave it absent until a native initialization or
+assistant message reports it. Their status describes the latest work, so a completed agent can run
 again under the same ID. `SendMessage` continuations have distinct invocation
 IDs. Delegated turn IDs are native invocation tool IDs, scoped to their agent.
 Unknown parents remain unknown until native tool ownership resolves them; depth,

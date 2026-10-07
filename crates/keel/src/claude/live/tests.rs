@@ -668,3 +668,19 @@ fn forwarded_command_results_bind_logs_using_native_bookend_identity_only() {
         Some("child")
     );
 }
+
+#[test]
+fn native_initialization_reports_model_without_accepting_synthetic_placeholders() {
+    let live = Attachment::new("root");
+    assert_eq!(live.snapshot().agents[0].model, None);
+    live.message(&json!({"type":"system","subtype":"init","model":"claude-sonnet-4-6"}));
+    assert_eq!(
+        live.snapshot().agents[0].model.as_deref(),
+        Some("claude-sonnet-4-6")
+    );
+    live.message(&json!({"type":"assistant","message":{"model":"<synthetic>","content":[]}}));
+    assert_eq!(
+        live.snapshot().agents[0].model.as_deref(),
+        Some("claude-sonnet-4-6")
+    );
+}
