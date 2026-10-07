@@ -78,6 +78,35 @@ pub trait Provider: Send + Sync {
         })
     }
 
+    /// Native persisted tasks, without starting or resuming work. Availability
+    /// and outcomes are limited to what the native transcripts retain.
+    fn list_tasks<'a>(
+        &'a self,
+        _session_id: &'a str,
+        _query: crate::task::Query,
+    ) -> BoxFuture<'a, Result<crate::task::Page>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "list_tasks",
+            })
+        })
+    }
+
+    /// Read-only native task logs for stored discovery. The implementation must
+    /// validate task membership in the session; consumers never supply paths.
+    fn task_output<'a>(
+        &'a self,
+        _session_id: &'a str,
+        _task_id: &'a str,
+        _query: crate::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "task_output",
+            })
+        })
+    }
+
     /// Starts a new session in `spec.cwd`. Settings the provider cannot
     /// honour, such as an effort the model does not offer, are
     /// [`Error::InvalidSetting`] and no

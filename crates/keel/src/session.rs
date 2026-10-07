@@ -79,6 +79,17 @@ impl Session {
         self.driver.stop_task(id).await
     }
 
+    /// Reads native logs of an observed task. No command is started. Unsupported
+    /// adapters return a typed error; missing output is reported independently
+    /// of task outcome. Use the cursor to follow an append-only log.
+    pub async fn task_output(
+        &self,
+        id: &str,
+        query: crate::task::OutputQuery,
+    ) -> Result<crate::task::OutputPage> {
+        self.driver.task_output(id, query).await
+    }
+
     /// Starts a turn with `input`. Subscribe first to receive all of its
     /// events; the receipt only confirms that the turn started.
     pub async fn send(&self, input: turn::Input) -> Result<turn::Receipt> {
@@ -151,6 +162,18 @@ pub trait Driver: Send + Sync {
             })
         })
     }
+    fn task_output<'a>(
+        &'a self,
+        _id: &'a str,
+        _query: crate::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "task_output",
+            })
+        })
+    }
+
     /// Starts a turn; returns once the agent accepted it. The receipt's turn
     /// id is the one the turn's events carry and the one it is stored under.
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>>;

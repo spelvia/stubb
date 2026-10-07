@@ -83,7 +83,13 @@ fn captured_tree_keeps_native_ids_models_and_exact_legacy_projection() {
             .all(|r| r[1].seq == r[0].seq + 1 && r[1].stream_id == r[0].stream_id)
     );
     assert_eq!(records.last().unwrap().seq, snapshot.seq);
-    assert!(snapshot.tasks.is_empty());
+    let command = snapshot.tasks.iter().find(|t| t.id == "bash-task").unwrap();
+    assert_eq!(command.status, crate::task::Status::Completed);
+    assert_eq!(command.owner_agent_id.as_deref(), Some("root"));
+    assert!(
+        matches!(&command.kind, crate::task::Kind::Command {command} if command == "sleep 12; printf claude-task-ok")
+    );
+    assert_eq!(snapshot.tasks.len(), 4);
     assert_eq!(
         snapshot.capabilities.stop_agent.support,
         obs::Support::Unsupported
@@ -333,4 +339,77 @@ fn continuation_ownership_does_not_reparent_an_existing_native_context() {
         "tool_use_id":"bash-tool","task_type":"local_bash","subagent_type":"general-purpose"}),
     );
     assert!(!live.snapshot().agents.iter().any(|a| a.id == "bash"));
+}
+
+#[test]
+fn task_membership_patch_and_completion_preserve_native_outcomes_and_progress() {
+    let live = Attachment::new("root");
+    live.message(&json!({"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"cmd","task_type":"local_bash","description":"native command"}]}));
+    assert_eq!(live.snapshot().tasks[0].owner_agent_id, None);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Unknown
+    );
+    live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
+    live.message(&json!({"type":"system","subtype":"task_progress","task_id":"cmd","tool_use_id":"bash","description":"progress","usage":{"total_tokens":19,"tool_uses":2,"duration_ms":100},"last_tool_name":"Bash"}));
+    live.message(&json!({"type":"system","subtype":"task_updated","task_id":"cmd","patch":{"status":"paused","is_backgrounded":true}}));
+    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Paused);
+    assert_eq!(
+        live.snapshot().tasks[0]
+            .progress
+            .as_ref()
+            .unwrap()
+            .total_tokens,
+        Some(19)
+    );
+    live.message(&json!({"type":"system","subtype":"background_tasks_changed","tasks":[]}));
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Unknown
+    );
+    finish(&live, "cmd", "bash", "failed");
+    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Failed);
+    live.message(&json!({"type":"system","subtype":"background_tasks_changed","tasks":["cmd"]}));
+    live.close(session::CloseReason::Client);
+    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Failed);
+}
+
+#[test]
+fn task_outcome_before_start_and_missing_logs_are_not_reinterpreted_as_running() {
+    let live = Attachment::new("root");
+    finish(&live, "cmd", "bash", "completed");
+    live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Completed
+    );
+    assert_eq!(
+        live.snapshot().tasks[0].output,
+        crate::task::OutputAvailability::Unknown
+    );
+    let binding = live.output_binding("cmd").unwrap();
+    assert_eq!(
+        crate::claude::output::read(binding, Default::default())
+            .unwrap()
+            .availability,
+        crate::task::OutputAvailability::Unavailable
+    );
+    assert!(matches!(
+        live.output_binding("missing"),
+        Err(crate::Error::TaskNotFound { .. })
+    ));
+}
+
+#[test]
+fn native_status_completion_does_not_promise_that_log_writes_are_final() {
+    let live = Attachment::new("root");
+    live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
+    live.message(&json!({"type":"system","subtype":"task_updated","task_id":"cmd","patch":{"status":"completed"}}));
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Completed
+    );
+    assert!(!live.output_binding("cmd").unwrap().terminal);
+    finish(&live, "cmd", "bash", "completed");
+    assert!(live.output_binding("cmd").unwrap().terminal);
 }

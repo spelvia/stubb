@@ -98,6 +98,7 @@ impl Tasks {
             let command = self.commands.get(&key);
             let previous_status = self.entries.get(&key).map(|entry| entry.summary.status);
             let summary = task::Summary {
+                progress: None,
                 id: self
                     .entries
                     .get(&key)

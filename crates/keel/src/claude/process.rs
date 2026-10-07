@@ -172,6 +172,19 @@ impl ClaudeProcess {
         self.shared.observation.snapshot()
     }
 
+    pub(super) async fn task_output(
+        &self,
+        id: &str,
+        query: crate::task::OutputQuery,
+    ) -> Result<crate::task::OutputPage> {
+        let binding = self.shared.observation.output_binding(id)?;
+        let page = crate::files::blocking(move || super::output::read(binding, query)).await?;
+        self.shared
+            .observation
+            .output_availability(id, page.availability);
+        Ok(page)
+    }
+
     /// Sends a `control_request` and waits for its response payload.
     pub(super) async fn control(&self, request: Value, timeout: Duration) -> Result<Value> {
         let method = request

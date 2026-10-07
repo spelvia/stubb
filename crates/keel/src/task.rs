@@ -20,6 +20,9 @@ pub struct Summary {
     pub ambient: Option<bool>,
     pub status: Status,
     pub output: OutputAvailability,
+    /// Native progress only; absent metrics are never estimated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,4 +67,53 @@ pub enum OutputAvailability {
     Unavailable,
     Partial,
     Complete,
+}
+
+/// Usage and progress reported by the native task surface.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    pub total_tokens: Option<u64>,
+    pub tool_uses: Option<u64>,
+    pub duration_ms: Option<u64>,
+    pub last_tool_name: Option<String>,
+    pub summary: Option<String>,
+}
+
+/// Read-only stored task discovery. Filters apply before pagination.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Query {
+    pub owner_agent_id: Option<String>,
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Page {
+    pub tasks: Vec<Summary>,
+    pub next_cursor: Option<String>,
+}
+
+/// Bounded log reads. Cursors are scoped to the session, task and native file;
+/// they must not be reused after file replacement or truncation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputQuery {
+    /// Maximum bytes, from 4 to 65536. Defaults to 16384.
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputPage {
+    pub task_id: String,
+    pub text: String,
+    /// Continue from this cursor, including at the current end of a growing log.
+    pub next_cursor: Option<String>,
+    pub availability: OutputAvailability,
+    /// At the end of the bytes currently available; a running file may grow.
+    pub eof: bool,
 }

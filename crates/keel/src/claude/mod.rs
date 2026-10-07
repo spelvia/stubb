@@ -11,6 +11,7 @@ mod events;
 mod fixtures;
 mod history;
 mod live;
+mod output;
 mod process;
 mod store;
 mod tools;
@@ -409,6 +410,14 @@ impl session::Driver for ClaudeSession {
 
     fn snapshot(&self) -> BoxFuture<'_, Result<crate::observation::Snapshot>> {
         Box::pin(async { Ok(self.process.snapshot()) })
+    }
+
+    fn task_output<'a>(
+        &'a self,
+        id: &'a str,
+        query: crate::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        Box::pin(async move { self.process.task_output(id, query).await })
     }
 
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {

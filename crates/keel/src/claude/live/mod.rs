@@ -1,6 +1,7 @@
 //! One native stream-json attachment: attributed activity and recursive agents.
 
 mod state;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod turns;
@@ -51,6 +52,24 @@ impl Attachment {
 
     pub(super) fn snapshot(&self) -> obs::Snapshot {
         self.state.lock().expect("observation lock").snapshot()
+    }
+
+    pub(super) fn output_binding(&self, id: &str) -> crate::Result<super::output::Binding> {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .output_binding(id)
+    }
+
+    pub(super) fn output_availability(
+        &self,
+        id: &str,
+        availability: crate::task::OutputAvailability,
+    ) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .output_availability(id, availability, &self.records);
     }
 
     pub(super) fn message(&self, message: &Value) {
@@ -115,18 +134,22 @@ pub(super) fn capabilities() -> obs::Capabilities {
             coverage: obs::Coverage::Partial,
             reason: Some("Atomic live agent state, active items and stream watermark".into()),
             gaps: vec![
-                "Completed transcripts, usage and background task state are not replayed".into(),
+                "Completed transcripts and usage are not replayed; command logs use task_output".into(),
             ],
         },
         agent_discovery: live.clone(),
         parent_links: live.clone(),
         nested_discovery: live.clone(),
         agent_lifecycle: live.clone(),
-        agent_transcript: live,
+        agent_transcript: live.clone(),
         agent_history: unavailable.clone(),
-        task_discovery: unavailable.clone(),
-        task_lifecycle: unavailable.clone(),
-        task_output: unavailable.clone(),
+        task_discovery: live.clone(),
+        task_lifecycle: live.clone(),
+        task_output: obs::Feature {
+            support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Bounded native command-file reads via task_output".into()),
+            gaps: vec!["Native output paths may be missing or expired; agent runs use owned transcripts rather than raw JSONL logs".into()],
+        },
         task_history: unavailable.clone(),
         stop_agent: unavailable.clone(),
         stop_subtree: unavailable.clone(),

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use super::turns::Branch;
-use crate::{agent, observation as obs, session, turn};
+use crate::{agent, observation as obs, session, task, turn};
 
 type Records = broadcast::Sender<obs::Record>;
 type Legacy = broadcast::Sender<session::Event>;
@@ -21,6 +21,8 @@ pub(super) struct State {
     delegated: HashMap<String, String>,
     /// Native tool ownership, not inferred from depth or descriptions.
     owners: HashMap<String, agent::Origin>,
+    commands: HashMap<String, String>,
+    tasks: super::tasks::Tasks,
     early: VecDeque<Value>,
     early_bytes: usize,
     stream_id: String,
@@ -49,6 +51,8 @@ impl State {
             children: BTreeMap::new(),
             delegated: HashMap::new(),
             owners: HashMap::new(),
+            commands: HashMap::new(),
+            tasks: Default::default(),
             early: VecDeque::new(),
             early_bytes: 0,
             stream_id: uuid::Uuid::new_v4().to_string(),
@@ -103,14 +107,18 @@ impl State {
         for agent in agents {
             self.publish(records, None, obs::Event::Agent { agent });
         }
+        for task in self.tasks.summaries() {
+            self.publish(records, None, obs::Event::Task { task });
+        }
     }
 
     fn status(&self) -> session::Status {
         if self.closed {
             session::Status::NotLoaded
-        } else if std::iter::once(&self.root)
-            .chain(self.children.values())
-            .any(|b| b.agent.status == agent::Status::Running || b.has_active_turns())
+        } else if self.tasks.running()
+            || std::iter::once(&self.root)
+                .chain(self.children.values())
+                .any(|b| b.agent.status == agent::Status::Running || b.has_active_turns())
         {
             session::Status::Active
         } else {
@@ -135,7 +143,7 @@ impl State {
                 .chain(self.children.values())
                 .map(|b| b.agent.clone())
                 .collect(),
-            tasks: vec![],
+            tasks: self.tasks.summaries(),
             active_turns: std::iter::once(&self.root)
                 .chain(self.children.values())
                 .flat_map(Branch::active_turns)
@@ -202,6 +210,9 @@ impl State {
             item: turn::Item::ToolCall(call),
         } = &event
         {
+            if let turn::ToolDetail::Command { command, .. } = &call.detail {
+                self.commands.insert(call.id.clone(), command.clone());
+            }
             self.owners.insert(
                 call.id.clone(),
                 agent::Origin {
@@ -242,6 +253,55 @@ impl State {
             let _ = legacy.send(event);
         }
         self.resolve_parents(records);
+        self.repair_tasks(records);
+    }
+
+    fn repair_tasks(&mut self, records: &Records) {
+        let before = self.tasks.summaries();
+        self.tasks.repair(&self.owners, &self.commands);
+        self.publish_task_changes(before, records);
+    }
+
+    fn publish_task_changes(&mut self, before: Vec<task::Summary>, records: &Records) {
+        for task in self.tasks.summaries() {
+            if !before.iter().any(|old| old == &task) {
+                self.publish(records, None, obs::Event::Task { task });
+            }
+        }
+    }
+
+    pub(super) fn output_binding(&self, id: &str) -> crate::Result<crate::claude::output::Binding> {
+        let e = self
+            .tasks
+            .entries
+            .get(id)
+            .ok_or_else(|| crate::Error::TaskNotFound {
+                session_id: self.root.agent.id.clone(),
+                id: id.into(),
+            })?;
+        Ok(crate::claude::output::Binding {
+            session: self.root.agent.id.clone(),
+            task: id.into(),
+            path: e.output_file.clone(),
+            terminal: e.output_final,
+            agent: matches!(e.summary.kind, task::Kind::AgentRun { .. }),
+        })
+    }
+
+    pub(super) fn output_availability(
+        &mut self,
+        id: &str,
+        availability: task::OutputAvailability,
+        records: &Records,
+    ) {
+        let Some(e) = self.tasks.entries.get_mut(id) else {
+            return;
+        };
+        if e.summary.output != availability {
+            e.summary.output = availability;
+            let task = e.summary.clone();
+            self.publish(records, None, obs::Event::Task { task });
+        }
     }
 
     fn resolve_parents(&mut self, records: &Records) {
@@ -411,6 +471,28 @@ impl State {
             }
             return;
         }
+        let old_status = self.status();
+        let old_tasks = self.tasks.summaries();
+        if message["type"] == "system" {
+            self.tasks.message(message);
+        }
+        if message["type"] == "user" {
+            self.tasks.result(message, &self.root.agent.id);
+        }
+        self.tasks.repair(&self.owners, &self.commands);
+        self.publish_task_changes(old_tasks, records);
+        if old_status != self.status() {
+            self.publish(
+                records,
+                None,
+                obs::Event::Activity {
+                    event: session::Event::Status {
+                        status: self.status(),
+                    },
+                    usage_scope: None,
+                },
+            );
+        }
         let subtype = message.get("subtype").and_then(Value::as_str);
         if message["type"] == "system" {
             if subtype == Some("task_started")
@@ -436,6 +518,12 @@ impl State {
     }
 
     fn forward(&mut self, message: &Value, tool: &str, records: &Records, legacy: &Legacy) {
+        let old_tasks = self.tasks.summaries();
+        if message["type"] == "user" {
+            self.tasks.result(message, &self.root.agent.id);
+            self.tasks.repair(&self.owners, &self.commands);
+            self.publish_task_changes(old_tasks, records);
+        }
         let id = self.delegated[tool].clone();
         let branch = self.children.get_mut(&id).unwrap();
         if branch.current.as_deref() != Some(tool) {
@@ -560,6 +648,9 @@ impl State {
                 records,
             );
         }
+        let old_tasks = self.tasks.summaries();
+        self.tasks.lost();
+        self.publish_task_changes(old_tasks, records);
         self.closed = true;
         self.early.clear();
         self.early_bytes = 0;

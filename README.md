@@ -38,9 +38,14 @@ native tool IDs; they are scoped to their owning agent. Unresolved parents remai
 unknown, and bounded routing gaps are reported explicitly. Work still running
 when the attachment closes becomes unknown.
 
+Claude tracks native task lifecycle, background membership, ownership and reported
+progress. `Session::task_output()` reads command logs in bounded pages with scoped
+cursors that can follow growing files. Missing or expired output is reported
+separately from task status; agent-run output uses agent transcripts.
+
 Claude coverage is currently limited to this attachment. Stored descendant
-history, normalized background tasks/output, and individual stop controls are
-unsupported. Native task messages remain available as raw observations.
+history and individual stop controls remain unsupported. Unknown native task
+fields remain available as raw observations.
 Snapshots restore agent state and active items; completed transcripts are not
 replayed. Keel forwards native observation and controls; delegation and commands
 are initiated by the coding agent.
