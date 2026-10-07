@@ -25,5 +25,8 @@ The forwarding request follows the official SDK's initialize field
 https://code.claude.com/docs/en/agent-sdk/subagents
 https://code.claude.com/docs/en/sub-agents
 
-Next checkpoints: attributed records and recursive agent trees; background task
-state/output; native stop_task controls; snapshots, recovery, and stored history.
+The adapter now supports attributed trees, tasks/logs, native stops, stored
+history and resume. `tests/harness` exercises its real subprocess/reader with
+scripted stream-json races and failures. Real Sonnet 4.6 checks through
+keel-tester remain separate; this captured file is intentionally limited to the
+selected native protocol traffic described above.

@@ -31,4 +31,4 @@ evidence that the harness manages it.
 
 `mod.rs` tests native decoding and mapping against this capture. Recursive
 routing, task state, and stop controls are tested alongside `codex/live/`;
-`tests/codex-harness` exercises the complete subprocess and JSON-RPC paths.
+`tests/harness` exercises the complete subprocess and JSON-RPC paths.

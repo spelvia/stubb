@@ -61,6 +61,10 @@ Snapshots restore agent state and active items; completed transcripts are not
 replayed. Keel forwards native observation and controls; delegation and commands
 are initiated by the coding agent.
 
+See [Claude monitoring contracts and native limits](docs/claude-observation.md)
+for consumer recovery, stops, history, and log semantics. The read-only
+`observe` example inspects stored agents/tasks without opening their session.
+
 ## Development
 
 The library lives in `crates/keel`. Public `agent`, `task`, `control`, and
@@ -77,7 +81,7 @@ and regression tests. These adapters share the public contracts while keeping
 their protocol-specific state private.
 
 The unpublished fake-process workspace member lives in
-[`tests/codex-harness`](tests/codex-harness). Root Cargo commands default to the
+[`tests/harness`](tests/harness). Root Cargo commands default to the
 library; use `--workspace` to include the harness tests:
 
 ```sh

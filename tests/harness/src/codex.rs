@@ -1,15 +1,10 @@
 //! Scripted native stdio peer. It executes no commands and calls no model.
 //! Scenarios are selected by the resumed root ID, so tests need no global env.
-use std::io::{self, BufRead, Write};
+use super::emit;
+use std::io::{self, BufRead};
 
 use serde_json::{Value, json};
 
-fn emit(value: Value) {
-    let stdout = io::stdout();
-    let mut out = stdout.lock();
-    writeln!(out, "{value}").unwrap();
-    out.flush().unwrap();
-}
 fn reply(id: &Value, result: Value) {
     emit(json!({"id":id,"result":result}));
 }
@@ -55,7 +50,7 @@ fn command(root: &str, ended: bool) {
     );
 }
 
-fn main() {
+pub(super) fn run() {
     assert_eq!(std::env::args().nth(1).as_deref(), Some("app-server"));
     let mut root = String::new();
     let mut seeded = false;
