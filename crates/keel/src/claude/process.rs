@@ -208,6 +208,25 @@ impl ClaudeProcess {
         timeout: Duration,
     ) -> Result<crate::control::Receipt> {
         let request = self.shared.observation.begin_stop(target)?;
+        self.stop_request(request, timeout).await
+    }
+    pub(super) async fn interrupt_turn(&self, turn: &str, timeout: Duration) -> Result<()> {
+        let request = self.shared.observation.begin_root_stop(turn)?;
+        let Some(native) = request.native else {
+            return Ok(());
+        };
+        let result = self
+            .control_guarded(native, timeout, Some(&request.id))
+            .await
+            .map(|_| ());
+        self.shared.observation.finish_stop(&request.id, &result);
+        result
+    }
+    async fn stop_request(
+        &self,
+        request: super::live::StopRequest,
+        timeout: Duration,
+    ) -> Result<crate::control::Receipt> {
         let Some(native) = request.native else {
             return Ok(self.shared.observation.stop_receipt(&request.id));
         };
@@ -215,7 +234,7 @@ impl ClaudeProcess {
             .control_guarded(native, timeout, Some(&request.id))
             .await
             .map(|_| ());
-        Ok(self.shared.observation.finish_stop(&request.id, result))
+        Ok(self.shared.observation.finish_stop(&request.id, &result))
     }
 
     async fn control_guarded(

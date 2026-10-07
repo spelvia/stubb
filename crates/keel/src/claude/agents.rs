@@ -187,7 +187,15 @@ impl Stored {
                 updated_at: entries.iter().rev().find_map(at),
             });
         }
-        agents[1..].sort_by_key(|a| (a.created_at.unwrap_or(i64::MAX), a.id.clone()));
+        agents[1..].sort_by_key(|a| {
+            (
+                transcripts[&a.id]
+                    .iter()
+                    .find_map(|e| e["timestamp"].as_str().and_then(files::timestamp_millis))
+                    .unwrap_or(i64::MAX),
+                a.id.clone(),
+            )
+        });
         let mut stored = Self {
             root,
             agents,
@@ -222,6 +230,7 @@ impl Stored {
     fn native_outcomes(&mut self) {
         let mut entries: Vec<_> = self.entries.values().flatten().collect();
         entries.sort_by_key(|e| e["timestamp"].as_str().unwrap_or(""));
+        let mut latest_tools = HashMap::new();
         // Native structured results join a child input's promptId to the
         // invocation tool. Prompt text and message wording establish nothing.
         for entry in &entries {
@@ -240,6 +249,7 @@ impl Stored {
                 continue;
             }
             let tool = tools[0];
+            latest_tools.insert(id.to_owned(), tool.to_owned());
             if let Some(turns) = self.turns.get_mut(id) {
                 let prompt = entry["promptId"].as_str();
                 let matching: Vec<_> = self.entries[id]
@@ -287,13 +297,15 @@ impl Stored {
             let Some(status) = native_status(super::stored_tasks::tag(content, "status")) else {
                 continue;
             };
-            if let Some(turns) = self.turns.get_mut(id)
-                && let Some(t) = turns.iter_mut().find(|t| t.id == tool)
-            {
-                set_outcome(t, status, entry);
-                if turns.last().is_some_and(|t| t.id == tool)
-                    && let Some(a) = self.agents.iter_mut().find(|a| a.id == id)
-                {
+            if let Some(turns) = self.turns.get_mut(id) {
+                if let Some(t) = turns.iter_mut().find(|t| t.id == tool) {
+                    set_outcome(t, status, entry);
+                }
+                let current = turns.last().map_or_else(
+                    || latest_tools.get(id).is_some_and(|latest| latest == tool),
+                    |t| t.id == tool,
+                );
+                if current && let Some(a) = self.agents.iter_mut().find(|a| a.id == id) {
                     a.status = status;
                 }
             }

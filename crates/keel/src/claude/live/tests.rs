@@ -438,7 +438,10 @@ fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
         .unwrap();
     assert!(task.native.is_none());
     assert_ne!(first.id, task.id);
-    assert_eq!(live.finish_stop(&first.id, Ok(())).disposition, D::Accepted);
+    assert_eq!(
+        live.finish_stop(&first.id, &Ok(())).disposition,
+        D::Accepted
+    );
     assert_eq!(live.stop_receipt(&task.id).disposition, D::Accepted);
     assert_eq!(
         live.snapshot().tasks[0].status,
@@ -476,7 +479,7 @@ fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
             .unwrap();
         finish(&live, "child", "spawn", status);
         assert!(!live.stop_is_current(&request.id));
-        assert_eq!(live.finish_stop(&request.id, Ok(())).disposition, expected);
+        assert_eq!(live.finish_stop(&request.id, &Ok(())).disposition, expected);
         assert_ne!(
             live.snapshot().tasks[0].status,
             crate::task::Status::Stopping
@@ -492,7 +495,7 @@ fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
     start(&live, "child", "resume");
     assert!(!live.stop_is_current(&request.id));
     assert_eq!(
-        live.finish_stop(&request.id, Ok(())).disposition,
+        live.finish_stop(&request.id, &Ok(())).disposition,
         D::Unconfirmed
     );
     assert_eq!(
@@ -519,7 +522,7 @@ fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
     assert_eq!(
         live.finish_stop(
             &request.id,
-            Err(crate::Error::Unsupported {
+            &Err(crate::Error::Unsupported {
                 operation: "timeout"
             })
         )
@@ -535,7 +538,7 @@ fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
         .unwrap();
     live.close(session::CloseReason::Client);
     assert_eq!(
-        live.finish_stop(&request.id, Ok(())).disposition,
+        live.finish_stop(&request.id, &Ok(())).disposition,
         D::Unconfirmed
     );
     finish(&live, "child", "resume", "stopped");
@@ -573,7 +576,7 @@ fn root_stop_is_scoped_to_current_native_turn() {
         .unwrap();
     assert_eq!(request.native, Some(json!({"subtype":"interrupt"})));
     assert_eq!(
-        live.finish_stop(&request.id, Ok(())).disposition,
+        live.finish_stop(&request.id, &Ok(())).disposition,
         D::Accepted
     );
     live.turn_failed("first", "interrupted");
@@ -603,5 +606,65 @@ fn child_outcome_before_identity_bookend_is_recovered_without_resurrection() {
     assert_eq!(
         live.snapshot().tasks[0].status,
         crate::task::Status::Stopped
+    );
+}
+
+#[test]
+fn native_task_id_without_tool_only_resolves_an_unambiguous_first_execution() {
+    let live = Attachment::new("root");
+    tool(&live, None, "spawn");
+    start(&live, "child", "spawn");
+    live.message(&json!({"type":"system","subtype":"task_notification","task_id":"child","status":"completed"}));
+    assert_eq!(
+        live.snapshot()
+            .agents
+            .iter()
+            .find(|a| a.id == "child")
+            .unwrap()
+            .status,
+        agent::Status::Completed
+    );
+    tool(&live, None, "resume");
+    start(&live, "child", "resume");
+    live.message(&json!({"type":"system","subtype":"task_progress","task_id":"child","tool_use_id":"resume","usage":{"total_tokens":10}}));
+    live.message(&json!({"type":"system","subtype":"task_progress","task_id":"child","tool_use_id":"spawn","usage":{"total_tokens":999}}));
+    live.message(&json!({"type":"system","subtype":"task_progress","task_id":"child","usage":{"total_tokens":888}}));
+    live.message(&json!({"type":"system","subtype":"task_notification","task_id":"child","status":"stopped"}));
+    let snap = live.snapshot();
+    assert_eq!(
+        snap.agents.iter().find(|a| a.id == "child").unwrap().status,
+        agent::Status::Running
+    );
+    assert_eq!(
+        snap.tasks[0].progress.as_ref().unwrap().total_tokens,
+        Some(10)
+    );
+    assert_eq!(snap.tasks[0].status, crate::task::Status::Running);
+}
+
+#[test]
+fn forwarded_command_results_bind_logs_using_native_bookend_identity_only() {
+    let live = Attachment::new("root");
+    live.turn_started("turn", "child");
+    tool(&live, None, "spawn");
+    start(&live, "child", "spawn");
+    live.message(&json!({"type":"assistant","parent_tool_use_id":"spawn","message":{"id":"bash-msg","content":[{"type":"tool_use","id":"bash","name":"Bash","input":{"command":"native command"}}]}}));
+    live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
+    live.message(&json!({"type":"user","parent_tool_use_id":"spawn","message":{"content":[{"type":"tool_result","tool_use_id":"unrelated","content":"/tmp/native/root/tasks/cmd.output"}]}}));
+    assert_eq!(live.output_binding("cmd").unwrap().path, None);
+    live.message(&json!({"type":"user","parent_tool_use_id":"spawn","message":{"content":[{"type":"tool_result","tool_use_id":"bash","content":"Background output: /tmp/native/root/tasks/cmd.output"}]}}));
+    assert_eq!(
+        live.output_binding("cmd").unwrap().path,
+        Some("/tmp/native/root/tasks/cmd.output".into())
+    );
+    assert_eq!(
+        live.snapshot()
+            .tasks
+            .iter()
+            .find(|t| t.id == "cmd")
+            .unwrap()
+            .owner_agent_id
+            .as_deref(),
+        Some("child")
     );
 }

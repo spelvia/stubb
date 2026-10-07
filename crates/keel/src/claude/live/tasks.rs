@@ -155,6 +155,14 @@ impl Tasks {
                     return;
                 };
                 let e = self.entry(&id, "unknown");
+                let reported = text(m, "tool_use_id");
+                if reported
+                    .as_ref()
+                    .is_some_and(|tool| e.tool.as_ref().is_some_and(|current| current != tool))
+                    || (e.generation > 1 && reported.is_none())
+                {
+                    return;
+                }
                 if !e.terminal && e.summary.status == task::Status::Unknown {
                     e.summary.status = task::Status::Running;
                 }
@@ -194,6 +202,9 @@ impl Tasks {
                     e.generation = 1;
                 }
                 update_progress(e, m);
+                if let Some(ambient) = m["skip_transcript"].as_bool() {
+                    e.summary.ambient = Some(ambient);
+                }
                 if let Some(path) = text(m, "output_file") {
                     e.output_file = Some(path.into());
                 }
@@ -257,27 +268,36 @@ impl Tasks {
 
     pub(super) fn result(&mut self, m: &Value, root: &str) {
         let r = &m["tool_use_result"];
-        let id = text(r, "backgroundTaskId").or_else(|| text(r, "agentId"));
-        let Some(id) = id else {
-            return;
-        };
-        let Some(e) = self.entries.get_mut(&id) else {
-            return;
-        };
-        if let Some(path) = text(r, "outputFile") {
+        if let Some(id) = text(r, "backgroundTaskId").or_else(|| text(r, "agentId"))
+            && let Some(e) = self.entries.get_mut(&id)
+            && let Some(path) = text(r, "outputFile")
+        {
             e.output_file = Some(path.into());
         }
-        // Bash's structured result supplies the ID; its native text supplies
-        // only the log path. No task identity is inferred from prose.
-        if e.output_file.is_none() && r["backgroundTaskId"].is_string() {
-            for block in m["message"]["content"].as_array().into_iter().flatten() {
-                let Some(content) = block["content"].as_str() else {
+        // Forwarded child results omit tool_use_result on current native CLIs.
+        // Join their actual tool-result ID to a structured native task bookend;
+        // parse only its path, never task identity or lifecycle from the text.
+        for block in m["message"]["content"].as_array().into_iter().flatten() {
+            if block["type"] != "tool_result" {
+                continue;
+            }
+            let Some(tool) = block["tool_use_id"].as_str() else {
+                continue;
+            };
+            let Some(content) = crate::claude::tools::result_text(&block["content"]) else {
+                continue;
+            };
+            for e in self.entries.values_mut().filter(|e| {
+                e.tool.as_deref() == Some(tool)
+                    && !matches!(e.summary.kind, task::Kind::AgentRun { .. })
+            }) {
+                if e.output_file.is_some() {
                     continue;
-                };
+                }
                 for word in content.split_whitespace() {
                     let path = word.trim_end_matches('.');
                     if path.starts_with('/')
-                        && path.ends_with(&format!("/{root}/tasks/{id}.output"))
+                        && path.ends_with(&format!("/{root}/tasks/{}.output", e.summary.id))
                     {
                         e.output_file = Some(path.into());
                     }

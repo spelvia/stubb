@@ -177,3 +177,30 @@ fn sidechain_symlinks_cannot_read_files_outside_this_session() {
     .unwrap();
     assert!(f.load(vec![]).member("escape").is_err());
 }
+
+#[test]
+fn creation_order_preserves_native_milliseconds_and_expired_outcomes() {
+    let f = Fixture::new();
+    for (id, time) in [
+        ("z", "2026-10-07T00:00:00.001Z"),
+        ("a", "2026-10-07T00:00:00.002Z"),
+    ] {
+        let mut e = user(id, Some(id), "p", "request");
+        e["timestamp"] = json!(time);
+        f.child(id, json!({}), &[e]);
+    }
+    let mut r = result("spawn", "expired", "p", false);
+    r["toolUseResult"]["status"] = json!("async_launched");
+    let stored=f.load(vec![user("u",None,"p","start"),spawn("spawn","Agent"),r,json!({"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-07T00:00:02.000Z","content":"<task-notification><task-id>expired</task-id><tool-use-id>spawn</tool-use-id><status>completed</status></task-notification>"})]);
+    assert_eq!(stored.agents[1].id, "z");
+    assert_eq!(stored.agents[2].id, "a");
+    assert_eq!(
+        stored
+            .agents
+            .iter()
+            .find(|a| a.id == "expired")
+            .unwrap()
+            .status,
+        agent::Status::Completed
+    );
+}

@@ -476,12 +476,11 @@ impl session::Driver for ClaudeSession {
         })
     }
 
-    fn interrupt<'a>(&'a self, _turn_id: &'a str) -> BoxFuture<'a, Result<()>> {
+    fn interrupt<'a>(&'a self, turn_id: &'a str) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             self.process
-                .control(json!({ "subtype": "interrupt" }), self.request_timeout)
+                .interrupt_turn(turn_id, self.request_timeout)
                 .await
-                .map(|_| ())
         })
     }
 

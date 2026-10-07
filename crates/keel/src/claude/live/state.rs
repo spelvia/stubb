@@ -498,10 +498,14 @@ impl State {
         let Some(branch) = self.children.get_mut(&id) else {
             return;
         };
-        let Some(tool) = text(message, "tool_use_id") else {
+        let Some(tool) = text(message, "tool_use_id").or_else(|| {
+            (branch.executions.len() == 1)
+                .then(|| branch.current.clone())
+                .flatten()
+        }) else {
             self.gap(
                 message,
-                "Agent completion omitted its execution identity",
+                "Agent completion omitted its execution identity after context reuse",
                 records,
             );
             return;

@@ -112,6 +112,7 @@ pub(super) fn read(binding: Binding, query: task::OutputQuery) -> Result<task::O
     // Keep a trailing incomplete UTF-8 character for the next read.
     if let Err(e) = std::str::from_utf8(&bytes)
         && e.error_len().is_none()
+        && !(binding.terminal && offset + bytes.len() as u64 >= metadata.len())
     {
         bytes.truncate(e.valid_up_to());
     }
@@ -249,6 +250,37 @@ mod tests {
         assert_eq!(page.text, "new contents");
         assert_eq!(page.availability, task::OutputAvailability::Complete);
         assert!(page.next_cursor.is_none());
+        fs::write(&path, b"ok\xe2").unwrap();
+        let live = read(
+            Binding {
+                session: "root".into(),
+                task: "task".into(),
+                path: Some(path.clone()),
+                terminal: false,
+                agent: false,
+            },
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(live.text, "ok");
+        assert!(!live.eof);
+        let final_page = read(
+            Binding {
+                session: "root".into(),
+                task: "task".into(),
+                path: Some(path),
+                terminal: true,
+                agent: false,
+            },
+            task::OutputQuery {
+                cursor: live.next_cursor,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(final_page.text, "\u{fffd}");
+        assert!(final_page.eof);
+        assert!(final_page.next_cursor.is_none());
         fs::remove_dir_all(dir.parent().unwrap().parent().unwrap()).unwrap();
     }
 }

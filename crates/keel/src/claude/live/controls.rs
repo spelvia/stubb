@@ -33,6 +33,20 @@ pub(in crate::claude) struct Request {
 }
 
 impl State {
+    pub(super) fn begin_root_stop(&mut self, turn: &str, records: &Records) -> Result<Request> {
+        if self.root.current.as_deref() != Some(turn) || self.closed {
+            return Err(Error::Unsupported {
+                operation: "interrupt_stale_turn",
+            });
+        }
+        self.begin_stop(
+            control::Target::Agent {
+                id: self.root.agent.id.clone(),
+            },
+            records,
+        )
+    }
+
     pub(super) fn begin_stop(
         &mut self,
         target: control::Target,
@@ -192,7 +206,7 @@ impl State {
     pub(super) fn finish_stop(
         &mut self,
         id: &str,
-        result: Result<()>,
+        result: &Result<()>,
         records: &Records,
     ) -> control::Receipt {
         let scope = self.controls[id].scope.clone();
@@ -209,7 +223,7 @@ impl State {
             if let Some(outcome) = p.outcome {
                 p.receipt.disposition = outcome;
             } else {
-                match &result {
+                match result {
                     Ok(()) if current => {
                         p.acknowledged = true;
                         p.receipt.disposition = control::Disposition::Accepted;

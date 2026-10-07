@@ -13,6 +13,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::{observation as obs, session};
+pub(in crate::claude) use controls::Request as StopRequest;
 use state::State;
 
 const BUFFER: usize = 1024;
@@ -66,6 +67,13 @@ impl Attachment {
         self.state.lock().expect("observation lock").snapshot()
     }
 
+    pub(super) fn begin_root_stop(&self, turn: &str) -> crate::Result<controls::Request> {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .begin_root_stop(turn, &self.records)
+    }
+
     pub(super) fn begin_stop(
         &self,
         target: crate::control::Target,
@@ -78,7 +86,7 @@ impl Attachment {
     pub(super) fn finish_stop(
         &self,
         id: &str,
-        result: crate::Result<()>,
+        result: &crate::Result<()>,
     ) -> crate::control::Receipt {
         self.state
             .lock()
