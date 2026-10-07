@@ -94,7 +94,8 @@ sh .githooks/install
 
 The hooks check Rust formatting and Clippy before each commit and require Conventional Commit subjects.
 
-GitHub Actions runs on pushes to `main` and pull requests targeting `main`.
+GitHub Actions runs on pushes to `main` and pull requests targeting `main`;
+it can also be started manually for `main`.
 It runs lint first, then Linux builds and tests on Rust 1.99.0
 (the declared minimum) and current stable. Once both pass, rustdoc/doctests,
 package verification, and dependency checks run in parallel. `CI passed` is the

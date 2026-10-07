@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
@@ -19,6 +20,7 @@ env:
 jobs:
   lint:
     name: Lint
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
