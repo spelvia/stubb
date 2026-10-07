@@ -24,6 +24,27 @@ cargo run --example chat -- claude --resume <session-id>
 cargo run --example chat -- pi --effort low
 ```
 
+## Observing delegated work
+
+`Session::subscribe_records()` provides sequenced activity with agent ownership;
+`subscribe()` retains the root event stream. Subscribe first, fetch `snapshot()`,
+then apply records from the same stream whose sequence exceeds the snapshot's
+watermark. Check `observation_capabilities()` for effective adapter support.
+
+Claude Code supports live root, child and nested agent discovery, transcripts,
+native execution outcomes, and atomic snapshots. It joins native task IDs to
+forwarded conversations through spawning tool IDs. Delegated turn IDs are those
+native tool IDs; they are scoped to their owning agent. Unresolved parents remain
+unknown, and bounded routing gaps are reported explicitly. Work still running
+when the attachment closes becomes unknown.
+
+Claude coverage is currently limited to this attachment. Stored descendant
+history, normalized background tasks/output, and individual stop controls are
+unsupported. Native task messages remain available as raw observations.
+Snapshots restore agent state and active items; completed transcripts are not
+replayed. Keel forwards native observation and controls; delegation and commands
+are initiated by the coding agent.
+
 ## Development
 
 The library lives in `crates/keel`. Public `agent`, `task`, `control`, and
@@ -33,6 +54,11 @@ contains capability types, reexported through `keel::observation`.
 Within the Codex adapter, `agents.rs` handles stored discovery and history;
 `live/` contains attachment state, routing, task reconciliation, and stop tracking.
 Captured native data and decoding tests live in `codex/fixtures/`.
+
+Claude's `live/` contains its attachment, native identity routing and active-turn
+materialization. `claude/fixtures/` retains selected native stream-json traffic
+and regression tests. These adapters share the public contracts while keeping
+their protocol-specific state private.
 
 The unpublished fake-process workspace member lives in
 [`tests/codex-harness`](tests/codex-harness). Root Cargo commands default to the

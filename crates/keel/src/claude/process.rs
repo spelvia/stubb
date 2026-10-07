@@ -19,12 +19,11 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 
-use super::events::SessionState;
-use crate::{Error, Result, session};
+use super::live;
+use crate::{Error, Result, observation, session};
 
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
-const EVENT_BUFFER: usize = 1024;
 const DECLINED: &str =
     "Keel cannot approve tool use yet, so this request was declined. Continue without it.";
 
@@ -65,8 +64,7 @@ struct Shared {
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     pending: Mutex<HashMap<String, oneshot::Sender<std::result::Result<Value, String>>>>,
     next_id: AtomicU64,
-    state: Mutex<SessionState>,
-    events: broadcast::Sender<session::Event>,
+    observation: live::Attachment,
     /// Set once the process is gone; holds the reason reported to callers.
     closed: Mutex<Option<String>>,
     /// Keel asked the process to stop, so its exit is not a disconnect.
@@ -128,8 +126,10 @@ impl ClaudeProcess {
             stdin: tokio::sync::Mutex::new(Some(stdin)),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(0),
-            state: Mutex::new(SessionState::default()),
-            events: broadcast::channel(EVENT_BUFFER).0,
+            observation: live::Attachment::new(match launch.conversation {
+                Conversation::None => "",
+                Conversation::New { id } | Conversation::Resume { id } => id,
+            }),
             closed: Mutex::new(None),
             closing: AtomicBool::new(false),
             stderr_tail: Mutex::new(String::new()),
@@ -157,7 +157,19 @@ impl ClaudeProcess {
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
-        self.shared.events.subscribe()
+        self.shared.observation.subscribe()
+    }
+
+    pub(super) fn configure_observation(&self, info: &session::Info) {
+        self.shared.observation.configure(info);
+    }
+
+    pub(super) fn subscribe_records(&self) -> broadcast::Receiver<observation::Record> {
+        self.shared.observation.subscribe_records()
+    }
+
+    pub(super) fn snapshot(&self) -> observation::Snapshot {
+        self.shared.observation.snapshot()
     }
 
     /// Sends a `control_request` and waits for its response payload.
@@ -218,13 +230,7 @@ impl ClaudeProcess {
         turn_id: &str,
         text: &str,
     ) -> Result<()> {
-        let events = self
-            .shared
-            .state
-            .lock()
-            .expect("state lock")
-            .turn_started(turn_id, text);
-        self.shared.emit(events);
+        self.shared.observation.turn_started(turn_id, text);
         let sent = self
             .shared
             .write(&json!({
@@ -237,13 +243,9 @@ impl ClaudeProcess {
             .await;
         if let Err(error) = &sent {
             // The turn was announced but never reached Claude Code; end it.
-            let events = self
-                .shared
-                .state
-                .lock()
-                .expect("state lock")
+            self.shared
+                .observation
                 .turn_failed(turn_id, &error.to_string());
-            self.shared.emit(events);
         }
         sent
     }
@@ -253,9 +255,7 @@ impl ClaudeProcess {
     pub(super) async fn close(&self) {
         // An exited process already announced `Closed { Exited }`.
         if !self.shared.closing.swap(true, Ordering::Relaxed) && self.is_alive() {
-            self.shared.emit(vec![session::Event::Closed {
-                reason: session::CloseReason::Client,
-            }]);
+            self.shared.observation.close(session::CloseReason::Client);
         }
         self.shared.stdin.lock().await.take();
         let mut child = self.child.lock().await;
@@ -295,13 +295,6 @@ impl Shared {
         self.closed.lock().expect("closed lock").clone()
     }
 
-    fn emit(&self, events: Vec<session::Event>) {
-        for event in events {
-            // No subscribers is fine; the event is simply dropped.
-            let _ = self.events.send(event);
-        }
-    }
-
     fn append_stderr(&self, line: &str) {
         let mut tail = self.stderr_tail.lock().expect("stderr lock");
         tail.push_str(line);
@@ -326,8 +319,7 @@ impl Shared {
             Some("control_request") => self.answer(&message).await,
             Some("control_cancel_request" | "keep_alive") => {}
             _ => {
-                let events = self.state.lock().expect("state lock").message(&message);
-                self.emit(events);
+                self.observation.message(&message);
             }
         }
     }
@@ -363,12 +355,11 @@ impl Shared {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let tool_use_id = request.get("tool_use_id").and_then(Value::as_str);
-            let events = self.state.lock().expect("state lock").tool_declined(
+            self.observation.tool_declined(
                 tool,
                 tool_use_id,
                 request.get("input").unwrap_or(&Value::Null),
             );
-            self.emit(events);
             json!({
                 "type": "control_response",
                 "response": {
@@ -407,9 +398,8 @@ impl Shared {
         *self.closed.lock().expect("closed lock") = Some(reason.clone());
         self.pending.lock().expect("pending lock").clear();
         if !self.closing.load(Ordering::Relaxed) {
-            self.emit(vec![session::Event::Closed {
-                reason: session::CloseReason::Exited { message: reason },
-            }]);
+            self.observation
+                .close(session::CloseReason::Exited { message: reason });
         }
     }
 }

@@ -1,0 +1,135 @@
+//! One native stream-json attachment: attributed activity and recursive agents.
+
+mod state;
+#[cfg(test)]
+mod tests;
+mod turns;
+
+use std::sync::Mutex;
+
+use serde_json::Value;
+use tokio::sync::broadcast;
+
+use crate::{observation as obs, session};
+use state::State;
+
+const BUFFER: usize = 1024;
+
+pub(super) struct Attachment {
+    state: Mutex<State>,
+    legacy: broadcast::Sender<session::Event>,
+    records: broadcast::Sender<obs::Record>,
+}
+
+impl Attachment {
+    pub(super) fn new(id: &str) -> Self {
+        Self {
+            state: Mutex::new(State::new(id)),
+            legacy: broadcast::channel(BUFFER).0,
+            records: broadcast::channel(BUFFER).0,
+        }
+    }
+
+    pub(super) fn configure(&self, info: &session::Info) {
+        let mut state = self.state.lock().expect("observation lock");
+        state.root.agent.model = Some(info.model.clone());
+        state.root.agent.created_at = Some(info.summary.created_at);
+        state.root.agent.updated_at = Some(info.summary.updated_at);
+        state.announce_root(&self.records);
+    }
+
+    pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
+        self.legacy.subscribe()
+    }
+
+    pub(super) fn subscribe_records(&self) -> broadcast::Receiver<obs::Record> {
+        let mut state = self.state.lock().expect("observation lock");
+        let receiver = self.records.subscribe();
+        state.announce_all(&self.records);
+        receiver
+    }
+
+    pub(super) fn snapshot(&self) -> obs::Snapshot {
+        self.state.lock().expect("observation lock").snapshot()
+    }
+
+    pub(super) fn message(&self, message: &Value) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .message(message, &self.records, &self.legacy);
+    }
+
+    pub(super) fn turn_started(&self, id: &str, text: &str) {
+        let mut state = self.state.lock().expect("observation lock");
+        let events = state.root.mapper.turn_started(id, text);
+        state.root_events(events, &self.records, &self.legacy);
+    }
+
+    pub(super) fn turn_failed(&self, id: &str, error: &str) {
+        let mut state = self.state.lock().expect("observation lock");
+        let events = state.root.mapper.turn_failed(id, error);
+        state.root_events(events, &self.records, &self.legacy);
+    }
+
+    pub(super) fn tool_declined(&self, tool: &str, id: Option<&str>, input: &Value) {
+        self.state.lock().expect("observation lock").tool_declined(
+            tool,
+            id,
+            input,
+            &self.records,
+            &self.legacy,
+        );
+    }
+
+    pub(super) fn close(&self, reason: session::CloseReason) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .close(reason, &self.records, &self.legacy);
+    }
+}
+
+pub(super) fn capabilities() -> obs::Capabilities {
+    let unavailable = obs::Feature {
+        support: obs::Support::Unsupported,
+        coverage: obs::Coverage::Unknown,
+        reason: Some("Not implemented by this Claude adapter checkpoint".into()),
+        gaps: vec![],
+    };
+    let live = obs::Feature {
+        support: obs::Support::Supported,
+        coverage: obs::Coverage::Partial,
+        reason: Some("Native task_started IDs and parent_tool_use_id conversations on this attachment".into()),
+        gaps: vec![
+            "Requires native task IDs and descendant forwarding; older CLIs may omit them".into(),
+            "Stored descendants are not discovered on resume in this checkpoint".into(),
+            "Unresolved traffic is bounded; overflow reports observationGap without guessing ancestry".into(),
+            "Delegated turns use native spawning tool IDs; continuations without task_started remain raw".into(),
+        ],
+    };
+    obs::Capabilities {
+        records: live.clone(),
+        snapshots: obs::Feature {
+            support: obs::Support::Supported,
+            coverage: obs::Coverage::Partial,
+            reason: Some("Atomic live agent state, active items and stream watermark".into()),
+            gaps: vec![
+                "Completed transcripts, usage and background task state are not replayed".into(),
+            ],
+        },
+        agent_discovery: live.clone(),
+        parent_links: live.clone(),
+        nested_discovery: live.clone(),
+        agent_lifecycle: live.clone(),
+        agent_transcript: live,
+        agent_history: unavailable.clone(),
+        task_discovery: unavailable.clone(),
+        task_lifecycle: unavailable.clone(),
+        task_output: unavailable.clone(),
+        task_history: unavailable.clone(),
+        stop_agent: unavailable.clone(),
+        stop_subtree: unavailable.clone(),
+        stop_task: unavailable,
+    }
+}

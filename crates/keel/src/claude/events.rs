@@ -43,6 +43,15 @@ enum BlockKind {
 }
 
 impl SessionState {
+    /// A native delegated execution. Its spawning tool ID is the turn identity
+    /// until Claude reports a separate continuation; no user input is invented.
+    pub(super) fn delegated_turn(&mut self, turn_id: &str) -> Vec<Event> {
+        self.turn_id = Some(turn_id.to_owned());
+        vec![Event::TurnStart {
+            turn_id: turn_id.to_owned(),
+        }]
+    }
+
     /// A user message Keel sent; `turn_id` is its uuid.
     pub(super) fn turn_started(&mut self, turn_id: &str, text: &str) -> Vec<Event> {
         self.turn_id = Some(turn_id.to_owned());
@@ -116,6 +125,16 @@ impl SessionState {
         if let Some(turn_id) = text(message, "user_message_uuid") {
             self.turn_id = Some(turn_id);
         }
+        self.content(message)
+    }
+
+    /// The attachment already resolved this forwarded frame's native owner.
+    /// Root user UUIDs must not replace the delegated execution's identity.
+    pub(super) fn delegated_message(&mut self, message: &Value) -> Vec<Event> {
+        self.content(message)
+    }
+
+    fn content(&mut self, message: &Value) -> Vec<Event> {
         match message.get("type").and_then(Value::as_str) {
             Some("stream_event") => self.stream(message.get("event").unwrap_or(&Value::Null)),
             Some("assistant") => self.assistant(message),

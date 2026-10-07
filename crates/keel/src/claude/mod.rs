@@ -10,6 +10,7 @@ mod events;
 #[cfg(test)]
 mod fixtures;
 mod history;
+mod live;
 mod process;
 mod store;
 mod tools;
@@ -271,6 +272,7 @@ impl Claude {
             persisted: restored,
             summary,
         };
+        process.configure_observation(&info);
         let driver = ClaudeSession {
             process,
             session_id: info.summary.id.clone(),
@@ -395,6 +397,18 @@ struct ClaudeSession {
 impl session::Driver for ClaudeSession {
     fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.process.subscribe()
+    }
+
+    fn subscribe_records(&self) -> Result<broadcast::Receiver<crate::observation::Record>> {
+        Ok(self.process.subscribe_records())
+    }
+
+    fn observation_capabilities(&self) -> Result<crate::observation::Capabilities> {
+        Ok(live::capabilities())
+    }
+
+    fn snapshot(&self) -> BoxFuture<'_, Result<crate::observation::Snapshot>> {
+        Box::pin(async { Ok(self.process.snapshot()) })
     }
 
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
