@@ -48,6 +48,7 @@ pub(super) enum Conversation<'a> {
 pub(super) struct Launch<'a> {
     pub executable: &'a Path,
     pub cwd: &'a Path,
+    pub config_dir: Option<&'a Path>,
     pub conversation: Conversation<'a>,
     pub model: Option<&'a str>,
     pub effort: Option<&'a str>,
@@ -91,6 +92,9 @@ impl ClaudeProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(dir) = launch.config_dir {
+            command.env("CLAUDE_CONFIG_DIR", dir);
+        }
         match launch.conversation {
             Conversation::None => {}
             Conversation::New { id } => {
@@ -158,6 +162,14 @@ impl ClaudeProcess {
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.shared.observation.subscribe()
+    }
+
+    pub(super) fn restore_observation(
+        &self,
+        stored: super::agents::Stored,
+        tasks: Vec<super::stored_tasks::Entry>,
+    ) {
+        self.shared.observation.restore(stored, tasks);
     }
 
     pub(super) fn configure_observation(&self, info: &session::Info) {

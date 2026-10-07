@@ -6,6 +6,7 @@
 //! process. Stored sessions are read directly from Claude Code's transcript
 //! files. All mapping onto Keel's types happens here.
 
+mod agents;
 mod events;
 #[cfg(test)]
 mod fixtures;
@@ -14,6 +15,7 @@ mod live;
 mod output;
 mod process;
 mod store;
+mod stored_tasks;
 mod tools;
 
 use std::collections::HashMap;
@@ -98,6 +100,7 @@ impl Claude {
         let cwd = std::env::temp_dir();
         let process = ClaudeProcess::spawn(&Launch {
             executable: &self.config.executable,
+            config_dir: self.config.config_dir.as_deref(),
             cwd: &cwd,
             conversation: Conversation::None,
             model: None,
@@ -232,8 +235,21 @@ impl Claude {
         settings: session::Settings,
         restored: bool,
     ) -> Result<Session> {
+        let bootstrap = if restored {
+            let stored = self.stored(&summary.id).await?;
+            Some(
+                files::blocking(move || {
+                    let tasks = stored_tasks::read(&stored)?.into_values().collect();
+                    Ok((stored, tasks))
+                })
+                .await?,
+            )
+        } else {
+            None
+        };
         let process = ClaudeProcess::spawn(&Launch {
             executable: &self.config.executable,
+            config_dir: self.config.config_dir.as_deref(),
             cwd: &summary.cwd,
             conversation,
             model: settings.model.as_deref(),
@@ -274,6 +290,10 @@ impl Claude {
             summary,
         };
         process.configure_observation(&info);
+        if let Some((stored, tasks)) = bootstrap {
+            process.restore_observation(stored, tasks);
+        }
+
         let driver = ClaudeSession {
             process,
             session_id: info.summary.id.clone(),
@@ -496,6 +516,38 @@ impl Provider for Claude {
         query: turn::Query,
     ) -> BoxFuture<'a, Result<turn::Page>> {
         Box::pin(Claude::list_turns(self, id, query))
+    }
+
+    fn list_agents<'a>(
+        &'a self,
+        root: &'a str,
+        query: crate::agent::Query,
+    ) -> BoxFuture<'a, Result<crate::agent::Page>> {
+        Box::pin(Claude::list_agents(self, root, query))
+    }
+    fn list_agent_turns<'a>(
+        &'a self,
+        root: &'a str,
+        id: &'a str,
+        query: turn::Query,
+    ) -> BoxFuture<'a, Result<crate::agent::TurnPage>> {
+        Box::pin(Claude::list_agent_turns(self, root, id, query))
+    }
+
+    fn list_tasks<'a>(
+        &'a self,
+        root: &'a str,
+        query: crate::task::Query,
+    ) -> BoxFuture<'a, Result<crate::task::Page>> {
+        Box::pin(Claude::list_tasks(self, root, query))
+    }
+    fn task_output<'a>(
+        &'a self,
+        root: &'a str,
+        id: &'a str,
+        query: crate::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        Box::pin(Claude::task_output(self, root, id, query))
     }
 
     fn start_session(&self, spec: session::Spec) -> BoxFuture<'_, Result<Session>> {

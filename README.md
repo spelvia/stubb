@@ -43,8 +43,16 @@ progress. `Session::task_output()` reads command logs in bounded pages with scop
 cursors that can follow growing files. Missing or expired output is reported
 separately from task status; agent-run output uses agent transcripts.
 
-Claude coverage is currently limited to this attachment. Stored descendant
-history remains unsupported in this checkpoint. Native root interrupts and
+`Provider::list_agents()` discovers stored descendants with parent/ancestor
+filters, and `list_agent_turns()` returns explicitly owned turns. Claude joins
+creation and `SendMessage` continuation history using native invocation IDs.
+`list_tasks()` and provider-level `task_output()` inspect stored tasks and logs
+without opening the session. Cursors validate session, resource, and filters.
+Resume bootstraps stored summaries into a new observation stream; files alone
+never establish that work is currently running. Retention and compaction can
+remove history, and unreported stored outcomes remain unknown.
+
+Native root interrupts and
 individual agent/task stops return receipts that distinguish acknowledgement
 from matching terminal evidence. Stop requests capture the current execution;
 Keel does not simulate subtree termination. Unknown native task

@@ -65,6 +65,43 @@ impl State {
         }
     }
 
+    pub(super) fn restore(
+        &mut self,
+        stored: crate::claude::agents::Stored,
+        tasks: Vec<crate::claude::stored_tasks::Entry>,
+        records: &Records,
+    ) {
+        if self.closed {
+            return;
+        }
+        for a in stored.agents {
+            if a.id == self.root.agent.id || self.children.contains_key(&a.id) {
+                continue;
+            }
+            let mut branch = Branch::new(a);
+            branch.spawn = branch.agent.origin.as_ref().and_then(|o| o.item_id.clone());
+            if let Some(turns) = stored.turns.get(&branch.agent.id) {
+                for t in turns {
+                    if t.status != turn::Status::InProgress {
+                        branch.executions.insert(t.id.clone());
+                    }
+                }
+            }
+            self.children.insert(branch.agent.id.clone(), branch);
+        }
+        self.owners.extend(
+            stored
+                .owners
+                .into_iter()
+                .filter(|(tool, _)| !self.owners.contains_key(tool))
+                .collect::<Vec<_>>(),
+        );
+        for entry in tasks {
+            self.tasks.restore(entry);
+        }
+        self.announce_all(records);
+    }
+
     pub(super) fn publish(&mut self, records: &Records, owner: Option<String>, event: obs::Event) {
         // The short-lived catalog process has no observed session.
         if self.root.agent.id.is_empty() {
@@ -437,6 +474,21 @@ impl State {
             self.apply(&id, event, records, legacy);
         }
         self.drain_early(records, legacy);
+        // A notification may precede its start/identity bookend. Apply only
+        // native terminal evidence for this same invocation after routing repair.
+        if let Some(e) = self.tasks.entries.get(&id)
+            && e.tool.as_deref() == Some(&tool)
+            && e.output_final
+        {
+            let status = match e.summary.status {
+                task::Status::Completed => "completed",
+                task::Status::Failed => "failed",
+                task::Status::Stopped => "stopped",
+                _ => return,
+            };
+            let notification = json!({"task_id":id,"tool_use_id":tool,"status":status,"summary":e.summary.progress.as_ref().and_then(|p|p.summary.clone())});
+            self.finish_agent(&notification, records, legacy);
+        }
     }
 
     fn finish_agent(&mut self, message: &Value, records: &Records, legacy: &Legacy) {
@@ -536,7 +588,10 @@ impl State {
                 self.finish_agent(message, records, legacy);
             }
         }
-        if let Some(model) = message.pointer("/message/model").and_then(Value::as_str)
+        if let Some(model) = message
+            .pointer("/message/model")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty() && !m.starts_with('<'))
             && message["type"] == "assistant"
             && self.root.agent.model.as_deref() != Some(model)
         {
@@ -565,7 +620,10 @@ impl State {
             );
             return;
         }
-        if let Some(model) = message.pointer("/message/model").and_then(Value::as_str)
+        if let Some(model) = message
+            .pointer("/message/model")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty() && !m.starts_with('<'))
             && branch.agent.model.as_deref() != Some(model)
         {
             branch.agent.model = Some(model.into());

@@ -40,6 +40,17 @@ impl Attachment {
         state.announce_root(&self.records);
     }
 
+    pub(super) fn restore(
+        &self,
+        stored: crate::claude::agents::Stored,
+        tasks: Vec<crate::claude::stored_tasks::Entry>,
+    ) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .restore(stored, tasks, &self.records);
+    }
+
     pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.legacy.subscribe()
     }
@@ -143,19 +154,13 @@ impl Attachment {
 }
 
 pub(super) fn capabilities() -> obs::Capabilities {
-    let unavailable = obs::Feature {
-        support: obs::Support::Unsupported,
-        coverage: obs::Coverage::Unknown,
-        reason: Some("Not implemented by this Claude adapter checkpoint".into()),
-        gaps: vec![],
-    };
     let live = obs::Feature {
         support: obs::Support::Supported,
         coverage: obs::Coverage::Partial,
         reason: Some("Native task_started IDs and parent_tool_use_id conversations on this attachment".into()),
         gaps: vec![
             "Requires native task IDs and descendant forwarding; older CLIs may omit them".into(),
-            "Stored descendants are not discovered on resume in this checkpoint".into(),
+            "Resume restores stored summaries; only native live bookends establish active executions".into(),
             "Unresolved traffic is bounded; overflow reports observationGap without guessing ancestry".into(),
             "Delegated turns use native spawning tool IDs; continuations without task_started remain raw".into(),
         ],
@@ -175,7 +180,7 @@ pub(super) fn capabilities() -> obs::Capabilities {
         nested_discovery: live.clone(),
         agent_lifecycle: live.clone(),
         agent_transcript: live.clone(),
-        agent_history: unavailable.clone(),
+        agent_history: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,reason:Some("Session-scoped native sidechains with invocation ownership".into()),gaps:vec!["Retention and compaction can remove native history; unavailable invocation outcomes stay inProgress without asserting running".into()]},
         task_discovery: live.clone(),
         task_lifecycle: live.clone(),
         task_output: obs::Feature {
@@ -183,11 +188,11 @@ pub(super) fn capabilities() -> obs::Capabilities {
             reason: Some("Bounded native command-file reads via task_output".into()),
             gaps: vec!["Native output paths may be missing or expired; agent runs use owned transcripts rather than raw JSONL logs".into()],
         },
-        task_history: unavailable.clone(),
+        task_history: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,reason:Some("Structured stored tool results and matching native queued notifications".into()),gaps:vec!["Unreported runtime state remains unknown; output files may expire independently".into()]},
         stop_agent: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,
             reason:Some("Native root interrupt and stop_task for captured delegated executions".into()),
             gaps:vec!["Native stop_task has no atomic generation guard; task scope is checked before writing and outcomes are correlated".into(),"Owned work follows native stop semantics; no context closure or simulated subtree stop".into()]},
-        stop_subtree: unavailable.clone(),
+        stop_subtree: obs::Feature {support:obs::Support::Unsupported,coverage:obs::Coverage::Unknown,reason:Some("Claude exposes individual interrupt/stop_task controls, no atomic subtree-stop primitive".into()),gaps:vec![]},
         stop_task: obs::Feature {support:obs::Support::Supported,coverage:obs::Coverage::Partial,
             reason:Some("Native stop_task with acknowledged and confirmed outcomes".into()),
             gaps:vec!["Requires native task and spawning tool identities; acknowledgement alone cannot prove termination".into()]},

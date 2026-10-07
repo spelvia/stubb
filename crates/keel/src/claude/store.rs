@@ -68,10 +68,15 @@ impl Store {
     }
 
     pub(super) fn find(&self, id: &str) -> io::Result<Option<SessionFile>> {
+        if !safe_id(id) {
+            return Ok(None);
+        }
         let name = format!("{id}.jsonl");
         for dir in subdirectories(&self.projects)? {
             let path = dir.join(&name);
-            if path.is_file() {
+            if path.is_file()
+                && path.canonicalize()?.parent() == Some(dir.canonicalize()?.as_path())
+            {
                 return Ok(Some(SessionFile {
                     id: id.to_owned(),
                     modified: modified_secs(&path),
@@ -156,6 +161,15 @@ pub(super) fn summary(file: &SessionFile, entries: &[Value]) -> session::Summary
 pub(super) fn is_main(entry: &Value) -> bool {
     let flag = |key: &str| entry.get(key).and_then(Value::as_bool) == Some(true);
     !flag("isSidechain") && !flag("isMeta")
+}
+
+pub(super) fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
 fn first_text(content: &Value) -> Option<String> {

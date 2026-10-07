@@ -25,6 +25,23 @@ pub(super) struct Tasks {
 }
 
 impl Tasks {
+    pub(super) fn restore(&mut self, entry: crate::claude::stored_tasks::Entry) {
+        self.entries
+            .entry(entry.summary.id.clone())
+            .or_insert(Entry {
+                summary: entry.summary,
+                tool: entry.tool,
+                output_file: entry.path,
+                generation: 0,
+                output_final: entry.terminal,
+                started: false,
+                terminal: false,
+            });
+        for e in self.entries.values_mut() {
+            e.terminal = is_terminal(e.summary.status);
+        }
+    }
+
     pub(super) fn running(&self) -> bool {
         self.entries.values().any(|e| {
             matches!(
@@ -89,7 +106,7 @@ impl Tasks {
                 if e.started && e.tool == tool {
                     return;
                 }
-                let reset = !e.terminal || (e.started && e.tool != tool);
+                let reset = !e.terminal || e.tool != tool;
                 if reset {
                     e.generation += 1;
                     e.terminal = false;

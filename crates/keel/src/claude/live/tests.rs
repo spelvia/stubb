@@ -585,3 +585,23 @@ fn root_stop_is_scoped_to_current_native_turn() {
     live.turn_started("second", "continue");
     assert!(!live.stop_is_current(&request.id));
 }
+
+#[test]
+fn child_outcome_before_identity_bookend_is_recovered_without_resurrection() {
+    let live = Attachment::new("root");
+    tool(&live, None, "spawn");
+    finish(&live, "child", "spawn", "stopped");
+    start(&live, "child", "spawn");
+    let snap = live.snapshot();
+    assert_eq!(
+        snap.agents.iter().find(|a| a.id == "child").unwrap().status,
+        agent::Status::Interrupted
+    );
+    assert_eq!(snap.tasks[0].status, crate::task::Status::Stopped);
+    assert!(!snap.active_turns.iter().any(|t| t.agent_id == "child"));
+    finish(&live, "child", "spawn", "completed");
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::task::Status::Stopped
+    );
+}

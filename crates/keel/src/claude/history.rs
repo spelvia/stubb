@@ -14,12 +14,38 @@ use crate::files::timestamp_millis;
 use crate::turn::{self, Item, ToolCall, ToolStatus, UserContent};
 
 pub(super) fn turns(entries: &[Value]) -> Vec<turn::Turn> {
+    group(entries, is_main, false)
+}
+
+pub(super) fn sidechain_turns(entries: &[Value]) -> Vec<turn::Turn> {
+    group(
+        entries,
+        |e| e["isMeta"] != true || e["origin"]["kind"] == "coordinator",
+        true,
+    )
+}
+
+fn group(entries: &[Value], include: impl Fn(&Value) -> bool, sidechain: bool) -> Vec<turn::Turn> {
+    let mut prompt: Option<String> = None;
+    let latest: std::collections::HashMap<_, _> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| e["uuid"].as_str().map(|id| (id, i)))
+        .collect();
     let mut turns: Vec<turn::Turn> = Vec::new();
     // Start and latest timestamp of the current turn, in milliseconds.
     let mut span: Option<(i64, i64)> = None;
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
+        if sidechain
+            && entry["uuid"]
+                .as_str()
+                .is_some_and(|id| latest.get(id) != Some(&index))
+        {
+            continue;
+        }
+
         let kind = entry.get("type").and_then(Value::as_str);
-        if !matches!(kind, Some("user" | "assistant")) || !is_main(entry) {
+        if !matches!(kind, Some("user" | "assistant")) || !include(entry) {
             continue;
         }
         let uuid = entry
@@ -40,7 +66,13 @@ pub(super) fn turns(entries: &[Value]) -> Vec<turn::Turn> {
         } else {
             Vec::new()
         };
-        let starts_turn = !texts.is_empty() || turns.is_empty();
+        let entry_prompt = entry["promptId"].as_str();
+        let starts_turn = turns.is_empty()
+            || (!texts.is_empty()
+                && (!sidechain || entry_prompt.is_none() || entry_prompt != prompt.as_deref()));
+        if starts_turn && kind == Some("user") {
+            prompt = entry_prompt.map(str::to_owned);
+        }
         if starts_turn {
             close_turn(turns.last_mut(), span);
             turns.push(new_turn(uuid));
