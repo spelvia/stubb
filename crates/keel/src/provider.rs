@@ -23,6 +23,16 @@ pub trait Provider: Send + Sync {
     /// Keel provider identifier, for example `codex`.
     fn id(&self) -> &'static str;
 
+    /// Account-wide quotas, without sending a prompt. Providers and native
+    /// CLI versions without a read operation return an explicit error.
+    fn account_usage(&self) -> BoxFuture<'_, Result<crate::usage::Account>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "account_usage",
+            })
+        })
+    }
+
     /// Selectable models. At most one is the default, and a model's
     /// default effort is one of its efforts.
     fn catalog(&self) -> BoxFuture<'_, Result<Catalog>>;

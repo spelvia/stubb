@@ -32,6 +32,7 @@ mod rpc;
 pub mod session;
 pub mod task;
 pub mod turn;
+pub mod usage;
 
 pub use catalog::Catalog;
 pub use error::{Error, Result};

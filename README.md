@@ -65,6 +65,7 @@ Runnable examples are included in the repository:
 
 | Example | Purpose |
 | --- | --- |
+| [usage](crates/keel/examples/usage.rs) | Read Claude Code account quotas without a model turn |
 | [models](crates/keel/examples/models.rs) | Discover models and settings |
 | [sessions](crates/keel/examples/sessions.rs) | List sessions and read history |
 | [chat](crates/keel/examples/chat.rs) | Start or resume a session and stream replies |

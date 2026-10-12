@@ -17,6 +17,7 @@ mod process;
 mod store;
 mod stored_tasks;
 mod tools;
+mod usage;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -92,6 +93,39 @@ impl Claude {
 
     pub fn config(&self) -> &ClaudeConfig {
         &self.config
+    }
+
+    /// Reads account quotas through Claude Code's experimental `get_usage`
+    /// control request. This short-lived process never sends a user message.
+    /// Native CLIs without the operation return an RPC error.
+    pub async fn account_usage(&self) -> Result<crate::usage::Account> {
+        let cwd = std::env::temp_dir();
+        let process = ClaudeProcess::spawn(&Launch {
+            executable: &self.config.executable,
+            config_dir: self.config.config_dir.as_deref(),
+            cwd: &cwd,
+            conversation: Conversation::None,
+            model: None,
+            effort: None,
+            fast_mode: None,
+        })?;
+        let result = async {
+            process
+                .control(json!({"subtype":"initialize"}), self.config.startup_timeout)
+                .await?;
+            let value = process
+                .control(json!({"subtype":"get_usage"}), self.config.request_timeout)
+                .await?;
+            if !value.is_object() {
+                return Err(Error::Unsupported {
+                    operation: "account_usage",
+                });
+            }
+            Ok(usage::account(value))
+        }
+        .await;
+        process.close().await;
+        result
     }
 
     /// Models Claude Code offers, read from a short-lived `claude` process.
@@ -499,6 +533,10 @@ impl session::Driver for ClaudeSession {
 }
 
 impl Provider for Claude {
+    fn account_usage(&self) -> BoxFuture<'_, Result<crate::usage::Account>> {
+        Box::pin(self.account_usage())
+    }
+
     fn id(&self) -> &'static str {
         PROVIDER_ID
     }
