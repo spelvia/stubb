@@ -175,6 +175,11 @@ impl Pi {
 
     /// Starts a new session. Pi stores it after its first turn.
     pub async fn start_session(&self, spec: session::Spec) -> Result<Session> {
+        if spec.settings.permissions.is_some() {
+            return Err(Error::Unsupported {
+                operation: "permission_configuration",
+            });
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let summary = session::Summary {
             id: id.clone(),
@@ -196,6 +201,11 @@ impl Pi {
     /// Loads a stored session into a new `pi` process in the session's
     /// working directory.
     pub async fn resume_session(&self, id: &str, settings: session::Settings) -> Result<Session> {
+        if settings.permissions.is_some() {
+            return Err(Error::Unsupported {
+                operation: "permission_configuration",
+            });
+        }
         let (file, entries) = self.load(id).await?;
         let mut summary = store::summary(&file, &entries);
         summary.status = session::Status::Idle;
@@ -282,6 +292,7 @@ impl Pi {
             effort,
             fast_mode: false,
             cwd: summary.cwd.clone(),
+            permissions: None,
             approval_policy: None,
             sandbox: None,
             restored,

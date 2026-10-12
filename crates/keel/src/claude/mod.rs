@@ -283,6 +283,7 @@ impl Claude {
             effort: settings.effort,
             fast_mode: text("fast_mode_state").as_deref() == Some("on"),
             cwd: summary.cwd.clone(),
+            permissions: None,
             approval_policy: text("current_permission_mode"),
             sandbox: None,
             restored,
@@ -319,6 +320,11 @@ impl Claude {
     /// not listed are passed through, since Claude accepts full model ids;
     /// their effort is then not checked.
     async fn validate(&self, settings: &session::Settings) -> Result<()> {
+        if settings.permissions.is_some() {
+            return Err(Error::Unsupported {
+                operation: "permission_configuration",
+            });
+        }
         if settings.model.is_none() && settings.effort.is_none() && settings.fast_mode != Some(true)
         {
             return Ok(());

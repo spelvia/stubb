@@ -1,120 +1,95 @@
 # Keel
 
-Keel is an embeddable Rust library for connecting applications to coding agents. It drives each agent through its native protocol (`codex app-server`, Claude Code's stream-json mode, Pi's RPC mode) and exposes them through one provider-neutral interface, `keel::Provider`.
+## Overview
 
-It provides shared model discovery, sessions, streaming, and (soon) permission handling for any application. Codex, Claude Code and Pi are supported; the host only needs their `codex`, `claude` and `pi` executables installed and signed in (for Pi: with its model providers configured).
+Keel is a Rust library for embedding coding agents in your application. It connects
+to Codex, Claude Code, and Pi through their native protocols and exposes a shared
+asynchronous API for sessions, streaming, interactive requests, and agent controls.
 
-Pi models are named `<provider>/<model id>` and its thinking levels are the effort levels. Pi has no approval step, so unlike the other two, a Pi session runs its tools (commands, file edits) without asking.
+Use Keel to build chat interfaces, development tools, or agent dashboards.
+Keel manages transport and session state; your application handles presentation
+and user decisions.
 
-## Examples
+## Installation
 
-Runnable examples live in [`crates/keel/examples`](crates/keel/examples). Each one is self-contained, so it doubles as a starting point:
+Requires **Rust 1.99.0 or newer**. Add Keel to your Rust project:
 
-| Example | Shows |
+```sh
+cargo add keel@0.1.0
+```
+
+Install and authenticate the CLI for each provider you want to use. For Pi,
+configure credentials for its model providers. Keel uses these local executables
+and their native configuration.
+
+## Features
+
+| Area | What you can do |
 | --- | --- |
-| [`models`](crates/keel/examples/models.rs) | Models with their effort levels and fast-mode support, for a model picker |
-| [`sessions`](crates/keel/examples/sessions.rs) | Stored sessions of a directory, and one session's history (read-only) |
-| [`chat`](crates/keel/examples/chat.rs) | Start or resume a session, send messages, and stream the reply and the commands the agent runs |
+| Sessions | Start, resume, and list sessions; read stored conversation history |
+| Streaming and recovery | Receive messages, tool activity, and turn events; recover attributed activity through sequenced records and snapshots |
+| Interactive requests | Answer action approvals, scoped permission grants, structured questions, and Pi extension dialogs asynchronously |
+| Permissions and planning | Configure native approval rules and sandbox settings; select plan mode and transition to execution |
+| Models and settings | Discover models; select and update model, effort, speed, and permission settings during a session |
+| Active input | Steer ongoing work or queue follow-up input through supported native operations |
+| Attachments | Send images and supported native file references alongside text |
+| Context | Inspect reported context usage and capacity; request native compaction and observe its progress |
+| Agents and tasks | Follow subagents and background tasks, read transcripts and paged logs, interrupt turns, and stop individual work |
+| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available |
+| Skills and commands | Discover and invoke supported native skills, commands, and prompt templates |
+| Usage and limits | Read reported token usage, costs, and rate limits with their native units and scope |
+
+Support depends on the provider, CLI version, model, and session configuration.
+Capability reporting identifies supported operations and partial coverage;
+unsupported operations return explicit errors. Unreported usage or account data
+remains unknown.
+
+## Supported providers
+
+| Provider | Executable | Native protocol |
+| --- | --- | --- |
+| OpenAI Codex | `codex` | App-server JSON-RPC |
+| Claude Code | `claude` | Stream JSON |
+| Pi | `pi` | RPC |
+
+Codex and Claude expose different permission, sandbox, and planning controls.
+Pi supports extension dialogs, steering, and follow-up queues, but has no built-in
+permission system, sandbox, or plan mode. Keel preserves these native differences.
+
+## Documentation and examples
+
+See the [0.1.0 API documentation](https://docs.rs/keel/0.1.0/keel/) for provider
+setup, session operations, event handling, and capability details.
+
+Runnable examples are included in the repository:
+
+| Example | Purpose |
+| --- | --- |
+| [models](crates/keel/examples/models.rs) | Discover models and settings |
+| [sessions](crates/keel/examples/sessions.rs) | List sessions and read history |
+| [chat](crates/keel/examples/chat.rs) | Start or resume a session and stream replies |
+| [observe](crates/keel/examples/observe.rs) | Inspect stored agents, tasks, and logs |
+
+From a repository checkout:
 
 ```sh
 cargo run --example models -- claude
-cargo run --example sessions -- codex --cwd /path/to/repo
-cargo run --example chat -- codex --model gpt-6-luna --effort medium
-cargo run --example chat -- claude --resume <session-id>
-cargo run --example chat -- pi --effort low
+cargo run --example chat -- codex --prompt "Explain this repository"
 ```
-
-## Observing delegated work
-
-`Session::subscribe_records()` provides sequenced activity with agent ownership;
-`subscribe()` retains the root event stream. Subscribe first, fetch `snapshot()`,
-then apply records from the same stream whose sequence exceeds the snapshot's
-watermark. Check `observation_capabilities()` for effective adapter support.
-
-Claude Code supports live root, child and nested agent discovery, transcripts,
-native execution outcomes, and atomic snapshots. It joins native task IDs to
-forwarded conversations through spawning tool IDs. Delegated turn IDs are those
-native tool IDs; they are scoped to their owning agent. Unresolved parents remain
-unknown, and bounded routing gaps are reported explicitly. Work still running
-when the attachment closes becomes unknown.
-
-Claude tracks native task lifecycle, background membership, ownership and reported
-progress. `Session::task_output()` reads command logs in bounded pages with scoped
-cursors that can follow growing files. Missing or expired output is reported
-separately from task status; agent-run output uses agent transcripts.
-
-`Provider::list_agents()` discovers stored descendants with parent/ancestor
-filters, and `list_agent_turns()` returns explicitly owned turns. Claude joins
-creation and `SendMessage` continuation history using native invocation IDs.
-`list_tasks()` and provider-level `task_output()` inspect stored tasks and logs
-without opening the session. Cursors validate session, resource, and filters.
-Resume bootstraps stored summaries into a new observation stream; files alone
-never establish that work is currently running. Retention and compaction can
-remove history, and unreported stored outcomes remain unknown.
-
-Native root interrupts and
-individual agent/task stops return receipts that distinguish acknowledgement
-from matching terminal evidence. Stop requests capture the current execution;
-Keel does not simulate subtree termination. Unknown native task
-fields remain available as raw observations.
-Snapshots restore agent state and active items; completed transcripts are not
-replayed. Keel forwards native observation and controls; delegation and commands
-are initiated by the coding agent.
-
-See [Claude monitoring contracts and native limits](docs/claude-observation.md)
-for consumer recovery, stops, history, and log semantics. The read-only
-`observe` example inspects stored agents/tasks without opening their session.
 
 ## Development
 
-The library lives in `crates/keel`. Public `agent`, `task`, `control`, and
-`observation` modules define the consumer contracts. `observation/capabilities.rs`
-contains capability types, reexported through `keel::observation`.
-
-Within the Codex adapter, `agents.rs` handles stored discovery and history;
-`live/` contains attachment state, routing, task reconciliation, and stop tracking.
-Captured native data and decoding tests live in `codex/fixtures/`.
-
-Claude's `live/` contains its attachment, native identity routing and active-turn
-materialization. `claude/fixtures/` retains selected native stream-json traffic
-and regression tests. These adapters share the public contracts while keeping
-their protocol-specific state private.
-
-Run the library tests with:
-
 ```sh
 cargo test --workspace --locked
-```
-
-Install the Git hooks in a checkout with:
-
-```sh
 sh .githooks/install
 ```
 
-The hooks check Rust formatting and Clippy before each commit and require Conventional Commit subjects.
+[CI](.github/workflows/ci.yml) checks lint, builds/tests, documentation, packaging,
+and dependencies. [Dependency scans](.github/workflows/dependencies.yml) and
+[Dependabot updates](.github/dependabot.yml) also run weekly.
 
-GitHub Actions runs on pushes to `main` and pull requests targeting `main`;
-it can also be started manually for `main`.
-It runs lint first, then Linux builds and tests on Rust 1.99.0
-(the declared minimum) and current stable. Once both pass, rustdoc/doctests,
-package verification, and dependency checks run in parallel. `CI passed` is the
-combined check to require in branch protection; it fails if any stage fails or
-is skipped. The workflows use the lockfile and do not run ignored provider tests.
+Real-provider tests are opt-in: `cargo test --test contract -- --ignored --nocapture`.
 
-Dependency checks use `cargo-deny` and `deny.toml` for advisories, licenses, and
-sources; duplicate versions produce warnings. The same check runs independently
-on `main` on Mondays at 06:23 UTC and can be started manually for `main` from Actions. Dependabot opens
-weekly Cargo and GitHub Actions update PRs, grouping compatible Cargo updates.
-For a local scan, install `cargo-deny` and run:
+## License
 
-```sh
-cargo deny --all-features --locked check
-```
-
-The `contract` test checks that every installed provider behaves as the `Provider` and `Driver` docs promise. It starts the real agents and runs short turns, so it is ignored by default:
-
-```sh
-cargo test --test contract -- --ignored --nocapture
-KEEL_CONTRACT_PROVIDERS=pi cargo test --test contract -- --ignored --nocapture
-```
+[MIT](LICENSE)

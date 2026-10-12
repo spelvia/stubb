@@ -243,6 +243,9 @@ pub struct Settings {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub fast_mode: Option<bool>,
+    /// Provider-specific start/resume permission overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<crate::permission::Configuration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -262,6 +265,10 @@ pub struct Info {
     pub effort: Option<String>,
     pub fast_mode: bool,
     pub cwd: PathBuf,
+    /// Structured requested and native-confirmed permission configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<crate::permission::Info>,
+    /// Legacy display description; use `permissions` for structured Codex data.
     pub approval_policy: Option<String>,
     pub sandbox: Option<String>,
     /// Whether the session was restored from storage rather than created.

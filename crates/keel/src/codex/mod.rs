@@ -12,6 +12,10 @@ mod events;
 mod fixtures;
 mod history;
 mod live;
+mod permissions;
+pub use permissions::{
+    ApprovalPolicy, EffectivePermissions, GranularApproval, Permissions, Sandbox, SandboxPolicy,
+};
 mod types;
 
 use std::collections::HashMap;
@@ -184,11 +188,12 @@ impl Codex {
                 self.config.request_timeout,
             )
             .await?;
-        Ok(self.open(connection, response, false))
+        Ok(self.open(connection, response, false, spec.settings.permissions))
     }
 
     /// Loads a stored thread into the app-server so it can take new turns.
     pub async fn resume_session(&self, id: &str, settings: session::Settings) -> Result<Session> {
+        let requested_permissions = settings.permissions.clone();
         let settings = self.settings_params(&settings, false).await?;
         let connection = self.connection().await?;
         let response: types::ThreadSessionResponse = connection
@@ -212,7 +217,12 @@ impl Codex {
                 }
                 other => unknown_session(id, other),
             })?;
-        let session = self.open(Arc::clone(&connection), response, true);
+        let session = self.open(
+            Arc::clone(&connection),
+            response,
+            true,
+            requested_permissions,
+        );
         if let Err(error) = self.discover_stored(&connection, id).await {
             connection.discovery_failed(id, &error.to_string());
         }
@@ -271,6 +281,15 @@ impl Codex {
         settings: &session::Settings,
         new_thread: bool,
     ) -> Result<ThreadSettingsParams> {
+        let permissions = settings
+            .permissions
+            .as_ref()
+            .map(|configuration| match configuration {
+                crate::permission::Configuration::Codex(permissions) => permissions,
+            });
+        if let Some(permissions) = permissions {
+            permissions.validate()?;
+        }
         let needs_catalog = settings.model.is_some()
             || settings.fast_mode == Some(true)
             || (new_thread && settings.effort.is_some());
@@ -324,15 +343,23 @@ impl Codex {
             },
         };
 
+        let mut config = HashMap::new();
+        if let Some(effort) = &settings.effort {
+            config.insert(
+                "model_reasoning_effort".into(),
+                Value::String(effort.clone()),
+            );
+        }
+        if let Some(permissions) = permissions {
+            permissions.apply_config(&mut config);
+        }
         Ok(ThreadSettingsParams {
             model: settings.model.clone(),
             service_tier,
-            config: settings.effort.as_ref().map(|effort| {
-                HashMap::from([(
-                    "model_reasoning_effort".to_owned(),
-                    Value::String(effort.clone()),
-                )])
-            }),
+            approval_policy: permissions.and_then(|p| p.approval_policy.clone()),
+            sandbox: permissions.and_then(Permissions::mode).map(str::to_owned),
+            permissions: permissions.and_then(|p| p.profile.clone()),
+            config: (!config.is_empty()).then_some(config),
         })
     }
 
@@ -341,6 +368,7 @@ impl Codex {
         connection: Arc<AppServer>,
         response: types::ThreadSessionResponse,
         restored: bool,
+        requested_permissions: Option<crate::permission::Configuration>,
     ) -> Session {
         let fast_tier = self
             .catalog
@@ -369,6 +397,16 @@ impl Codex {
             effort: response.reasoning_effort,
             fast_mode,
             cwd: response.cwd,
+            permissions: Some(crate::permission::Info {
+                requested: requested_permissions,
+                effective: crate::permission::EffectiveConfiguration::Codex(
+                    EffectivePermissions::from_native(
+                        &response.approval_policy,
+                        &response.sandbox,
+                        &response.active_permission_profile,
+                    ),
+                ),
+            }),
             approval_policy: history::describe(&response.approval_policy),
             sandbox: history::describe(&response.sandbox),
             restored,
@@ -793,5 +831,126 @@ mod tests {
             version_from_user_agent("keel/0.159.0 (Linux; x86_64)").as_deref(),
             Some("0.159.0")
         );
+    }
+    #[tokio::test]
+    async fn permission_overrides_merge_with_effort_and_apply_to_start_and_resume() {
+        let provider = Codex::new(CodexConfig::default());
+        *provider.catalog.lock().unwrap() = Some(fixture_catalog());
+        let settings = session::Settings {
+            effort: Some("low".into()),
+            fast_mode: Some(false),
+            permissions: Some(crate::permission::Configuration::Codex(Permissions {
+                approval_policy: Some(ApprovalPolicy::OnRequest),
+                sandbox: Some(Sandbox::WorkspaceWrite {
+                    writable_roots: Some(vec!["/extra".into()]),
+                    network_access: Some(false),
+                    exclude_tmpdir_env_var: Some(true),
+                    exclude_slash_tmp: Some(true),
+                }),
+                profile: None,
+            })),
+            ..Default::default()
+        };
+        for new_thread in [true, false] {
+            let params = provider
+                .settings_params(&settings, new_thread)
+                .await
+                .unwrap();
+            let value = serde_json::to_value(&params).unwrap();
+            assert_eq!(value["approvalPolicy"], "on-request");
+            assert_eq!(value["sandbox"], "workspace-write");
+            assert!(value["serviceTier"].is_null());
+            assert_eq!(
+                value["config"],
+                serde_json::json!({
+                    "model_reasoning_effort":"low",
+                    "sandbox_workspace_write.writable_roots":["/extra"],
+                    "sandbox_workspace_write.network_access":false,
+                    "sandbox_workspace_write.exclude_tmpdir_env_var":true,
+                    "sandbox_workspace_write.exclude_slash_tmp":true
+                })
+            );
+            let wire = if new_thread {
+                serde_json::to_value(types::ThreadStartParams {
+                    cwd: "/work".into(),
+                    settings: params,
+                })
+                .unwrap()
+            } else {
+                serde_json::to_value(types::ThreadResumeParams {
+                    thread_id: "stored",
+                    exclude_turns: true,
+                    settings: params,
+                })
+                .unwrap()
+            };
+            assert_eq!(wire["approvalPolicy"], "on-request");
+            assert_eq!(wire["sandbox"], "workspace-write");
+        }
+        assert!(!provider.is_connected().await);
+    }
+
+    #[tokio::test]
+    async fn omitted_permissions_leave_native_configuration_untouched() {
+        let provider = Codex::new(CodexConfig::default());
+        for new_thread in [true, false] {
+            let params = provider
+                .settings_params(&session::Settings::default(), new_thread)
+                .await
+                .unwrap();
+            assert_eq!(serde_json::to_value(params).unwrap(), serde_json::json!({}));
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_permissions_fail_before_starting_codex() {
+        let provider = Codex::new(CodexConfig {
+            executable: "/missing/codex".into(),
+            ..Default::default()
+        });
+        let settings = session::Settings {
+            model: Some("not-in-catalog".into()),
+            permissions: Some(crate::permission::Configuration::Codex(Permissions {
+                profile: Some("named".into()),
+                sandbox: Some(Sandbox::ReadOnly),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        assert!(matches!(
+            provider
+                .start_session(session::Spec {
+                    cwd: "/work".into(),
+                    settings: settings.clone()
+                })
+                .await,
+            Err(Error::InvalidSetting {
+                setting: "permissions",
+                ..
+            })
+        ));
+        assert!(matches!(
+            provider.resume_session("missing", settings).await,
+            Err(Error::InvalidSetting {
+                setting: "permissions",
+                ..
+            })
+        ));
+        assert!(!provider.is_connected().await);
+    }
+
+    #[tokio::test]
+    async fn named_profiles_are_forwarded_without_a_sandbox_override() {
+        let provider = Codex::new(CodexConfig::default());
+        let settings = session::Settings {
+            permissions: Some(crate::permission::Configuration::Codex(Permissions {
+                profile: Some("named".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(provider.settings_params(&settings, false).await.unwrap())
+            .unwrap();
+        assert_eq!(value, serde_json::json!({"permissions":"named"}));
     }
 }

@@ -25,6 +25,7 @@ pub mod control;
 mod error;
 mod files;
 pub mod observation;
+pub mod permission;
 pub mod pi;
 pub mod provider;
 mod rpc;

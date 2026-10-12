@@ -177,6 +177,12 @@ pub(crate) enum ThreadStatus {
 pub(crate) struct ThreadSettingsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<super::ApprovalPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<String>,
     /// `Some(None)` explicitly clears the tier (standard speed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<Option<String>>,
@@ -216,6 +222,8 @@ pub(crate) struct ThreadSessionResponse {
     pub approval_policy: Value,
     #[serde(default)]
     pub sandbox: Value,
+    #[serde(default)]
+    pub active_permission_profile: Value,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
 }
