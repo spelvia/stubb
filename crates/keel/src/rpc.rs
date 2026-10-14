@@ -92,6 +92,7 @@ impl Connection {
         handler: Arc<dyn Handler>,
     ) -> Result<Self> {
         let executable = PathBuf::from(command.as_std().get_program());
+        crate::process::die_with_parent(&mut command);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

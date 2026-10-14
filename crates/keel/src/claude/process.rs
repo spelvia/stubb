@@ -92,6 +92,7 @@ impl ClaudeProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        crate::process::die_with_parent(&mut command);
         if let Some(dir) = launch.config_dir {
             command.env("CLAUDE_CONFIG_DIR", dir);
         }

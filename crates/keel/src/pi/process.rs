@@ -78,6 +78,7 @@ impl PiProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        crate::process::die_with_parent(&mut command);
         if let Some(agent_dir) = launch.agent_dir {
             command.env("PI_CODING_AGENT_DIR", agent_dir);
         }
