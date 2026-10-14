@@ -35,9 +35,9 @@ and their native configuration.
 | Attachments | Send images and supported native file references alongside text |
 | Context | Inspect reported context usage and capacity; request native compaction and observe its progress |
 | Agents and tasks | Follow subagents and background tasks, read transcripts and paged logs, interrupt turns, and stop individual work |
-| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available |
+| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available; agent processes die with the host, and the shared Codex app-server closes when idle |
 | Skills and commands | Discover and invoke supported native skills, commands, and prompt templates |
-| Usage and limits | Read reported token usage, costs, and rate limits with their native units and scope |
+| Usage and limits | Read reported token usage, costs, and rate limits with their native units and scope; read Codex and Claude Code account quotas without a model turn |
 
 Support depends on the provider, CLI version, model, and session configuration.
 Capability reporting identifies supported operations and partial coverage;
@@ -65,7 +65,7 @@ Runnable examples are included in the repository:
 
 | Example | Purpose |
 | --- | --- |
-| [usage](crates/keel/examples/usage.rs) | Read Claude Code account quotas without a model turn |
+| [usage](crates/keel/examples/usage.rs) | Read Codex or Claude Code account quotas without a model turn |
 | [models](crates/keel/examples/models.rs) | Discover models and settings |
 | [sessions](crates/keel/examples/sessions.rs) | List sessions and read history |
 | [chat](crates/keel/examples/chat.rs) | Start or resume a session and stream replies |

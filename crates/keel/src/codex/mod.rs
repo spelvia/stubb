@@ -21,6 +21,7 @@ pub use permissions::{
 #[cfg(all(test, unix))]
 mod transport_tests;
 mod types;
+mod usage;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -134,6 +135,16 @@ impl Codex {
         let catalog = build_catalog(connection.user_agent().map(str::to_owned), models);
         *self.catalog.lock().expect("catalog lock") = Some(catalog.clone());
         Ok(catalog)
+    }
+
+    /// Account quotas through Codex's read-only `account/rateLimits/read`,
+    /// over the shared app-server connection: no thread starts and no
+    /// prompt is sent. Accounts without ChatGPT sign-in return an RPC error.
+    pub async fn account_usage(&self) -> Result<crate::usage::Account> {
+        let raw: Value = self
+            .request("account/rateLimits/read", &serde_json::json!({}))
+            .await?;
+        Ok(usage::account(raw))
     }
 
     /// Stored sessions, most recently updated first.
@@ -654,6 +665,10 @@ impl session::Driver for CodexSession {
 impl Provider for Codex {
     fn id(&self) -> &'static str {
         PROVIDER_ID
+    }
+
+    fn account_usage(&self) -> BoxFuture<'_, Result<crate::usage::Account>> {
+        Box::pin(Codex::account_usage(self))
     }
 
     fn catalog(&self) -> BoxFuture<'_, Result<Catalog>> {

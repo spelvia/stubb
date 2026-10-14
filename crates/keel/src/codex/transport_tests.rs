@@ -24,6 +24,7 @@ while IFS= read -r line; do
   case "$method" in
     initialize) printf '{{"id":%s,"result":{{"userAgent":"keel-test/0.1.0"}}}}\n' "$id" ;;
     model/list) printf '{{"id":%s,"result":{{"data":[]}}}}\n' "$id" ;;
+    account/rateLimits/read) printf '{{"id":%s,"result":{{"rateLimits":{{"limitId":"codex","planType":"plus","primary":{{"usedPercent":16,"windowDurationMins":10080}}}}}}}}\n' "$id" ;;
     thread/start) printf '{{"id":%s,"result":{{"thread":{{"id":"thread-1","cwd":"/tmp","status":{{"type":"idle"}}}},"model":"gpt-test","cwd":"/tmp"}}}}\n' "$id" ;;
     thread/backgroundTerminals/list) printf '{{"id":%s,"result":{{"data":[]}}}}\n' "$id" ;;
     thread/unsubscribe) printf '{{"id":%s,"result":{{}}}}\n' "$id" ;;
@@ -78,6 +79,32 @@ async fn eventually(done: impl Fn() -> bool) -> bool {
 }
 
 #[tokio::test]
+async fn account_usage_is_read_over_the_shared_connection() {
+    let folder = folder();
+    let codex = provider(&folder, None);
+
+    let usage = codex.account_usage().await.unwrap();
+    codex.catalog().await.unwrap();
+    let again = codex.account_usage().await.unwrap();
+    codex.shutdown().await;
+
+    assert_eq!(usage.plan.as_deref(), Some("plus"));
+    assert_eq!(usage.windows[0].label, "Weekly limit");
+    assert_eq!(usage.windows[0].used_percent, Some(16.0));
+    assert_eq!(again.windows, usage.windows);
+    // One process for everything, and never a thread or a turn.
+    assert_eq!(lines(&folder, "starts").len(), 1);
+    let methods = lines(&folder, "methods");
+    assert!(
+        !methods
+            .iter()
+            .any(|method| method.starts_with("thread/") || method.starts_with("turn/")),
+        "{methods:?}"
+    );
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
 async fn an_idle_connection_closes_and_starts_again_on_the_next_call() {
     let folder = folder();
     let codex = provider(&folder, Some(Duration::from_millis(150)));
@@ -91,7 +118,7 @@ async fn an_idle_connection_closes_and_starts_again_on_the_next_call() {
     );
     assert!(!codex.is_connected().await);
 
-    codex.catalog().await.unwrap();
+    codex.account_usage().await.unwrap();
     assert_eq!(lines(&folder, "starts").len(), 2);
     codex.shutdown().await;
     std::fs::remove_dir_all(folder).unwrap();
