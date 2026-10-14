@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 use super::events;
 use super::live::{Attachment, Router, tasks};
 use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
+use crate::process::Environment;
 use crate::rpc::{self, Handler};
 use crate::{Result, session};
 
@@ -28,9 +29,14 @@ pub(crate) struct AppServer {
 
 impl AppServer {
     /// Spawns `codex app-server` and completes the initialize handshake.
-    pub(crate) async fn start(executable: &Path, request_timeout: Duration) -> Result<Self> {
+    pub(crate) async fn start(
+        executable: &Path,
+        environment: &Environment,
+        request_timeout: Duration,
+    ) -> Result<Self> {
         let mut command = Command::new(executable);
         command.arg("app-server");
+        environment.apply(&mut command);
         let (metadata_tx, mut metadata_rx) = mpsc::channel::<String>(128);
         let routing = Arc::new(Router::new(metadata_tx));
         let rpc = Arc::new(rpc::Connection::spawn(

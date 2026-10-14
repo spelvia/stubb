@@ -1,11 +1,11 @@
 //! The shared app-server against a stand-in `codex` executable: when it
 //! starts, when it closes, and what it is asked.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{Codex, CodexConfig};
+use crate::process::Environment;
 use crate::session;
 
 /// A stand-in `codex app-server` that records each start's process ID and
@@ -16,6 +16,7 @@ fn executable(folder: &Path) -> PathBuf {
         r#"#!/bin/sh
 [ "$1" = app-server ] || exit 1
 echo $$ >> '{starts}'
+env > '{environment}'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p')
   method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
@@ -34,9 +35,9 @@ done
 "#,
         starts = folder.join("starts").display(),
         methods = folder.join("methods").display(),
+        environment = folder.join("environment").display(),
     );
-    std::fs::write(&path, script).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    crate::process::write_executable(&path, &script);
     path
 }
 
@@ -101,6 +102,36 @@ async fn account_usage_is_read_over_the_shared_connection() {
             .any(|method| method.starts_with("thread/") || method.starts_with("turn/")),
         "{methods:?}"
     );
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn the_app_server_starts_with_only_the_allowed_environment() {
+    let folder = folder();
+    let codex = Codex::new(CodexConfig {
+        executable: executable(&folder),
+        idle_timeout: None,
+        environment: Environment::only(["PATH"]).set("KEEL_RUN", "1"),
+        ..CodexConfig::default()
+    });
+
+    codex.catalog().await.unwrap();
+    codex.shutdown().await;
+
+    let names: Vec<String> = lines(&folder, "environment")
+        .iter()
+        .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_owned()))
+        .collect();
+    assert!(names.iter().any(|name| name == "PATH"), "{names:?}");
+    assert!(names.iter().any(|name| name == "KEEL_RUN"), "{names:?}");
+    // Besides what the shell exports for itself, nothing of the host's.
+    let host: Vec<&String> = names
+        .iter()
+        .filter(|name| {
+            !["PATH", "KEEL_RUN", "PWD", "OLDPWD", "SHLVL", "_"].contains(&name.as_str())
+        })
+        .collect();
+    assert!(host.is_empty(), "{host:?}");
     std::fs::remove_dir_all(folder).unwrap();
 }
 

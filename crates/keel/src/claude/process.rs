@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 
 use super::live;
+use crate::process::Environment;
 use crate::{Error, Result, observation, session};
 
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
@@ -49,6 +50,7 @@ pub(super) struct Launch<'a> {
     pub executable: &'a Path,
     pub cwd: &'a Path,
     pub config_dir: Option<&'a Path>,
+    pub environment: &'a Environment,
     pub conversation: Conversation<'a>,
     pub model: Option<&'a str>,
     pub effort: Option<&'a str>,
@@ -93,6 +95,7 @@ impl ClaudeProcess {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         crate::process::die_with_parent(&mut command);
+        launch.environment.apply(&mut command);
         if let Some(dir) = launch.config_dir {
             command.env("CLAUDE_CONFIG_DIR", dir);
         }

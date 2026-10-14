@@ -35,6 +35,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::catalog::{self, Catalog, FastMode, ProviderInfo};
+use crate::process::Environment;
 use crate::provider::BoxFuture;
 use crate::session::{self, Session};
 use crate::{Error, Provider, Result, turn};
@@ -62,6 +63,9 @@ pub struct CodexConfig {
     /// request waiting, before it is closed; `None` keeps it until
     /// [`Codex::shutdown`]. The next call starts it again.
     pub idle_timeout: Option<Duration>,
+    /// The environment of the app-server, and so of every command it runs:
+    /// the host's whole environment by default.
+    pub environment: Environment,
 }
 
 impl Default for CodexConfig {
@@ -72,6 +76,7 @@ impl Default for CodexConfig {
             startup_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),
             idle_timeout: Some(Duration::from_secs(600)),
+            environment: Environment::inherit(),
         }
     }
 }
@@ -270,7 +275,11 @@ impl Codex {
         let timeout = self.config.startup_timeout;
         let connection = tokio::time::timeout(
             timeout,
-            AppServer::start(&self.config.executable, self.config.request_timeout),
+            AppServer::start(
+                &self.config.executable,
+                &self.config.environment,
+                self.config.request_timeout,
+            ),
         )
         .await
         .map_err(|_| Error::Timeout(timeout))??;

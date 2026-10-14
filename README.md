@@ -35,7 +35,7 @@ and their native configuration.
 | Attachments | Send images and supported native file references alongside text |
 | Context | Inspect reported context usage and capacity; request native compaction and observe its progress |
 | Agents and tasks | Follow subagents and background tasks, read transcripts and paged logs, interrupt turns, and stop individual work |
-| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available; agent processes die with the host, and the shared Codex app-server closes when idle |
+| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available; agent processes die with the host, start with the host's environment or only the variables it allows, and the shared Codex app-server closes when idle |
 | Skills and commands | Discover and invoke supported native skills, commands, and prompt templates |
 | Usage and limits | Read reported token usage, costs, and rate limits with their native units and scope; read Codex and Claude Code account quotas without a model turn |
 
@@ -60,6 +60,9 @@ permission system, sandbox, or plan mode. Keel preserves these native difference
 
 See the [0.1.0 API documentation](https://docs.rs/keel/0.1.0/keel/) for provider
 setup, session operations, event handling, and capability details.
+
+Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md) and
+[agent process environment](docs/agent-environment.md).
 
 Runnable examples are included in the repository:
 

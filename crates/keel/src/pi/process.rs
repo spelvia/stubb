@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 
 use super::events::SessionState;
+use crate::process::Environment;
 use crate::{Error, Result, session};
 
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
@@ -43,6 +44,7 @@ pub(super) enum Conversation<'a> {
 pub(super) struct Launch<'a> {
     pub executable: &'a Path,
     pub agent_dir: Option<&'a Path>,
+    pub environment: &'a Environment,
     pub cwd: &'a Path,
     pub conversation: Conversation<'a>,
 }
@@ -79,6 +81,7 @@ impl PiProcess {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         crate::process::die_with_parent(&mut command);
+        launch.environment.apply(&mut command);
         if let Some(agent_dir) = launch.agent_dir {
             command.env("PI_CODING_AGENT_DIR", agent_dir);
         }

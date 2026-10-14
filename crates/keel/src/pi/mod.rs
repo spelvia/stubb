@@ -29,6 +29,7 @@ use tokio::sync::broadcast;
 
 use crate::catalog::{self, Catalog, FastMode, ProviderInfo};
 use crate::files::{self, blocking, cursor_offset, now};
+use crate::process::Environment;
 use crate::provider::BoxFuture;
 use crate::session::{self, Session};
 use crate::{Error, Provider, Result, turn};
@@ -54,6 +55,9 @@ pub struct PiConfig {
     pub startup_timeout: Duration,
     /// Deadline for each command, such as a prompt or an abort.
     pub request_timeout: Duration,
+    /// The environment of each `pi` process: the host's whole environment
+    /// by default.
+    pub environment: Environment,
 }
 
 impl Default for PiConfig {
@@ -63,6 +67,7 @@ impl Default for PiConfig {
             agent_dir: None,
             startup_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),
+            environment: Environment::inherit(),
         }
     }
 }
@@ -77,11 +82,16 @@ pub struct Pi {
 
 impl Pi {
     pub fn new(config: PiConfig) -> Self {
+        // Where the process will look, with the environment it gets.
+        let env = &config.environment;
         let agent_dir = config
             .agent_dir
             .clone()
-            .or_else(|| std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from))
-            .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".pi/agent")))
+            .or_else(|| env.value("PI_CODING_AGENT_DIR").map(PathBuf::from))
+            .or_else(|| {
+                env.value("HOME")
+                    .map(|home| Path::new(&home).join(".pi/agent"))
+            })
             .unwrap_or_else(|| PathBuf::from(".pi/agent"));
         Self {
             store: Arc::new(Store::new(&agent_dir)),
@@ -97,7 +107,10 @@ impl Pi {
     /// Models configured in Pi, read from a short-lived `pi` process.
     pub async fn catalog(&self) -> Result<Catalog> {
         let process = self.spawn(&std::env::temp_dir(), Conversation::None)?;
-        let version = tokio::spawn(version(self.config.executable.clone()));
+        let version = tokio::spawn(version(
+            self.config.executable.clone(),
+            self.config.environment.clone(),
+        ));
         let loaded = async {
             let state = process
                 .command(json!({ "type": "get_state" }), self.config.startup_timeout)
@@ -236,6 +249,7 @@ impl Pi {
         PiProcess::spawn(&Launch {
             executable: &self.config.executable,
             agent_dir: self.config.agent_dir.as_deref(),
+            environment: &self.config.environment,
             cwd,
             conversation,
         })
@@ -376,14 +390,14 @@ impl Pi {
 }
 
 /// `pi --version`, e.g. `1.0.2`.
-async fn version(executable: PathBuf) -> Option<String> {
-    let output = tokio::time::timeout(
-        Duration::from_secs(10),
-        Command::new(executable).arg("--version").output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
+async fn version(executable: PathBuf, environment: Environment) -> Option<String> {
+    let mut command = Command::new(executable);
+    command.arg("--version");
+    environment.apply(&mut command);
+    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
+        .await
+        .ok()?
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     text.split_whitespace().next().map(str::to_owned)
 }

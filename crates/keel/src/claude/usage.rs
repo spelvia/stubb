@@ -118,14 +118,15 @@ mod tests {
 #[cfg(all(test, unix))]
 mod transport_tests {
     use crate::claude::{Claude, ClaudeConfig};
-    use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
     async fn account_query_sends_only_initialize_and_get_usage() {
         let folder = std::env::temp_dir().join(format!("keel-usage-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&folder).unwrap();
         let executable = folder.join("claude");
-        std::fs::write(&executable, r#"#!/bin/sh
+        crate::process::write_executable(
+            &executable,
+            r#"#!/bin/sh
 IFS= read -r request
 case "$request" in *'"subtype":"initialize"'*) ;; *) exit 1;; esac
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"keel_0","response":{}}}'
@@ -135,8 +136,8 @@ printf '%s\n' '{"type":"control_response","response":{"subtype":"success","reque
 # Wait for the host to close instead of launching any inference.
 IFS= read -r unexpected
 exit 1
-"#).unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+"#,
+        );
         let provider = Claude::new(ClaudeConfig {
             executable,
             ..ClaudeConfig::default()
