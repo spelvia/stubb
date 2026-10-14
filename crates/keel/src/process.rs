@@ -14,8 +14,8 @@ pub(crate) fn die_with_parent(command: &mut Command) {
     {
         let parent = std::process::id();
         // SAFETY: between fork and exec the closure makes only
-        // async-signal-safe calls (`prctl`, `getppid`) and allocates nothing
-        // but the error on failure, after which the child exits.
+        // async-signal-safe calls (`prctl`, `getppid`) and allocates nothing,
+        // not even its errors.
         unsafe {
             command.pre_exec(move || {
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
@@ -23,7 +23,7 @@ pub(crate) fn die_with_parent(command: &mut Command) {
                 }
                 // The parent may have died before the request took effect.
                 if u32::try_from(libc::getppid()).ok() != Some(parent) {
-                    return Err(std::io::Error::other("the host exited during spawn"));
+                    return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
                 }
                 Ok(())
             });
