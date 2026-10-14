@@ -3,7 +3,9 @@
 //! A [`Codex`] provider owns at most one app-server process: one execution
 //! context. The process starts on first use and is shared by catalog
 //! requests and every session; if it exits, the next call starts a new one
-//! and live sessions receive [`session::Event::Closed`].
+//! and live sessions receive [`session::Event::Closed`]. Once nothing has
+//! used it for [`CodexConfig::idle_timeout`], with no live session and no
+//! request waiting, it is closed, and the next call starts it again.
 
 mod agents;
 mod connection;
@@ -16,10 +18,13 @@ mod permissions;
 pub use permissions::{
     ApprovalPolicy, EffectivePermissions, GranularApproval, Permissions, Sandbox, SandboxPolicy,
 };
+#[cfg(all(test, unix))]
+mod transport_tests;
 mod types;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -52,6 +57,10 @@ pub struct CodexConfig {
     pub startup_timeout: Duration,
     /// Deadline for each request.
     pub request_timeout: Duration,
+    /// How long the app-server may sit unused, with no live session and no
+    /// request waiting, before it is closed; `None` keeps it until
+    /// [`Codex::shutdown`]. The next call starts it again.
+    pub idle_timeout: Option<Duration>,
 }
 
 impl Default for CodexConfig {
@@ -61,6 +70,7 @@ impl Default for CodexConfig {
             include_hidden: false,
             startup_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),
+            idle_timeout: Some(Duration::from_secs(600)),
         }
     }
 }
@@ -68,7 +78,10 @@ impl Default for CodexConfig {
 /// The Codex provider for one execution context.
 pub struct Codex {
     config: CodexConfig,
-    connection: tokio::sync::Mutex<Option<Arc<AppServer>>>,
+    connection: Arc<tokio::sync::Mutex<Option<Arc<AppServer>>>>,
+    /// Calls that used the connection, so a short request between two idle
+    /// checks still counts as use.
+    uses: Arc<AtomicU64>,
     /// Last catalog, used to validate settings and resolve fast-mode tiers.
     catalog: Mutex<Option<Catalog>>,
 }
@@ -77,7 +90,8 @@ impl Codex {
     pub fn new(config: CodexConfig) -> Self {
         Self {
             config,
-            connection: tokio::sync::Mutex::new(None),
+            connection: Arc::new(tokio::sync::Mutex::new(None)),
+            uses: Arc::new(AtomicU64::new(0)),
             catalog: Mutex::new(None),
         }
     }
@@ -238,6 +252,7 @@ impl Codex {
 
     async fn connection(&self) -> Result<Arc<AppServer>> {
         let mut slot = self.connection.lock().await;
+        self.uses.fetch_add(1, Ordering::Relaxed);
         if let Some(connection) = slot.as_ref().filter(|connection| connection.is_alive()) {
             return Ok(Arc::clone(connection));
         }
@@ -250,6 +265,14 @@ impl Codex {
         .map_err(|_| Error::Timeout(timeout))??;
         let connection = Arc::new(connection);
         *slot = Some(Arc::clone(&connection));
+        if let Some(idle) = self.config.idle_timeout {
+            close_when_idle(
+                Arc::downgrade(&self.connection),
+                Arc::clone(&self.uses),
+                Arc::as_ptr(&connection) as usize,
+                idle,
+            );
+        }
         Ok(connection)
     }
 
@@ -422,6 +445,55 @@ impl Codex {
         };
         Session::new(info, Arc::new(driver))
     }
+}
+
+/// Closes the app-server `connection` (named by its address) once it has
+/// been idle for `idle`: no session object holds it or no session is live,
+/// no request waits, and no call used it meanwhile. Ends when the provider
+/// is gone or holds another connection.
+fn close_when_idle(
+    slot: std::sync::Weak<tokio::sync::Mutex<Option<Arc<AppServer>>>>,
+    uses: Arc<AtomicU64>,
+    connection: usize,
+    idle: Duration,
+) {
+    tokio::spawn(async move {
+        let poll = (idle / 10).clamp(Duration::from_millis(10), Duration::from_secs(5));
+        let mut since: Option<(tokio::time::Instant, u64)> = None;
+        loop {
+            tokio::time::sleep(poll).await;
+            let Some(slot) = slot.upgrade() else {
+                return;
+            };
+            let mut guard = slot.lock().await;
+            let Some(current) = guard
+                .as_ref()
+                .filter(|current| Arc::as_ptr(current) as usize == connection)
+            else {
+                return;
+            };
+            if !current.is_alive() {
+                return;
+            }
+            // The provider's slot holds one reference; sessions hold the rest.
+            let used = uses.load(Ordering::Relaxed);
+            if !current.is_idle(Arc::strong_count(current) > 1) {
+                since = None;
+                continue;
+            }
+            match since {
+                Some((at, seen)) if seen == used => {
+                    if at.elapsed() >= idle {
+                        let closing = guard.take().expect("checked above");
+                        drop(guard);
+                        closing.shutdown().await;
+                        return;
+                    }
+                }
+                _ => since = Some((tokio::time::Instant::now(), used)),
+            }
+        }
+    });
 }
 
 struct CodexSession {

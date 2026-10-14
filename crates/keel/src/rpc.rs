@@ -149,6 +149,11 @@ impl Connection {
         self.shared.closed.lock().expect("closed lock").is_none()
     }
 
+    /// Requests sent and not answered yet.
+    pub(crate) fn pending_requests(&self) -> usize {
+        self.shared.pending.lock().expect("pending lock").len()
+    }
+
     pub(crate) async fn request<P, R>(
         &self,
         method: &str,

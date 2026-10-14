@@ -110,6 +110,13 @@ impl AppServer {
         })
     }
 
+    /// Whether nothing uses the process: no request waits for an answer,
+    /// and no session is live (`sessions_held` is false when no session
+    /// object holds the connection any more).
+    pub(super) fn is_idle(&self, sessions_held: bool) -> bool {
+        self.rpc.pending_requests() == 0 && (!sessions_held || self.routing.live_sessions() == 0)
+    }
+
     pub(crate) fn user_agent(&self) -> Option<&str> {
         self.user_agent.as_deref()
     }

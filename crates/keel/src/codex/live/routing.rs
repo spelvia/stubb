@@ -38,6 +38,16 @@ impl Router {
         }
     }
 
+    /// Sessions attached and not closed.
+    pub(in crate::codex) fn live_sessions(&self) -> usize {
+        let state = self.state.lock().expect("routing lock");
+        state
+            .roots
+            .values()
+            .filter(|root| !root.is_closed())
+            .count()
+    }
+
     pub(in crate::codex) fn terminal_targets(&self) -> Vec<(String, Arc<Attachment>)> {
         let state = self.state.lock().expect("routing lock");
         state
