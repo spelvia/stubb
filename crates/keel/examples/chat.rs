@@ -9,8 +9,9 @@
 //! cargo run --example chat -- claude --prompt "Reply with exactly: hello world"   # one turn, then exit
 //! ```
 //!
-//! Keel cannot approve tool use yet, so commands Codex or Claude Code want to
-//! run are declined and shown as such. Pi has no approvals and runs them.
+//! This example does not forward requests, so commands Codex or Claude Code
+//! want to run are declined and shown as such; the `approve` example answers
+//! them instead. Pi has no approvals and runs them.
 
 use std::io::Write;
 use std::path::PathBuf;

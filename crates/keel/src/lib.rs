@@ -29,6 +29,7 @@ pub mod permission;
 pub mod pi;
 pub mod process;
 pub mod provider;
+pub mod request;
 mod rpc;
 pub mod session;
 pub mod task;

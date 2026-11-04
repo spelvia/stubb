@@ -686,46 +686,82 @@ impl State {
         records: &Records,
         legacy: &Legacy,
     ) {
+        self.owned(id, records, legacy, |mapper| {
+            mapper.tool_declined(tool, id, input)
+        });
+    }
+
+    pub(super) fn requested(
+        &mut self,
+        tool_use_id: Option<&str>,
+        request: crate::request::Request,
+        records: &Records,
+        legacy: &Legacy,
+    ) {
+        self.owned(tool_use_id, records, legacy, |mapper| {
+            mapper.requested(request)
+        });
+    }
+
+    pub(super) fn request_resolved(
+        &mut self,
+        tool_use_id: Option<&str>,
+        id: &str,
+        outcome: crate::request::Outcome,
+        records: &Records,
+        legacy: &Legacy,
+    ) {
+        self.owned(tool_use_id, records, legacy, |mapper| {
+            mapper.request_resolved(id, outcome, tool_use_id)
+        });
+    }
+
+    /// Applies events about one tool call to the agent that owns the call.
+    /// Requests always reach the root stream, even from a delegated agent,
+    /// because the host must answer them there.
+    fn owned(
+        &mut self,
+        tool_use_id: Option<&str>,
+        records: &Records,
+        legacy: &Legacy,
+        events: impl FnOnce(&mut super::super::events::SessionState) -> Vec<session::Event>,
+    ) {
         if self.closed {
             return;
         }
-        let owner = id
+        let owner = tool_use_id
             .and_then(|id| self.owners.get(id))
             .map(|o| o.agent_id.clone());
         let Some(owner) = owner else {
-            // Keep the legacy permission notice, but unresolved ownership is
-            // never a promise that the request originated in the root agent.
-            let events = self.root.mapper.tool_declined(tool, id, input);
-            for event in events {
+            // Keep the root notice, but unresolved ownership is never a
+            // promise that the call originated in the root agent.
+            for event in events(&mut self.root.mapper) {
                 let _ = legacy.send(event.clone());
-                let event = match event {
-                    session::Event::RequestDeclined {
-                        method, summary, ..
-                    } => session::Event::RequestDeclined {
-                        method,
-                        summary,
-                        turn_id: None,
-                    },
-                    event => event,
-                };
                 self.publish(
                     records,
                     None,
                     obs::Event::Activity {
-                        event,
+                        event: unattributed(event),
                         usage_scope: None,
                     },
                 );
             }
             return;
         };
-        let branch = if owner == self.root.agent.id {
+        let root = owner == self.root.agent.id;
+        let branch = if root {
             &mut self.root
         } else {
             self.children.get_mut(&owner).unwrap()
         };
-        let events = branch.mapper.tool_declined(tool, id, input);
-        for event in events {
+        for event in events(&mut branch.mapper) {
+            let request = matches!(
+                event,
+                session::Event::Request { .. } | session::Event::RequestResolved { .. }
+            );
+            if request && !root {
+                let _ = legacy.send(event.clone());
+            }
             self.apply(&owner, event, records, legacy);
         }
     }
@@ -786,4 +822,22 @@ impl State {
 
 fn text(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// Drops the turn of an event whose owning agent is unknown.
+fn unattributed(event: session::Event) -> session::Event {
+    match event {
+        session::Event::RequestDeclined {
+            method, summary, ..
+        } => session::Event::RequestDeclined {
+            method,
+            summary,
+            turn_id: None,
+        },
+        session::Event::Request { mut request } => {
+            request.turn_id = None;
+            session::Event::Request { request }
+        }
+        event => event,
+    }
 }

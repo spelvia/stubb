@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Value, json};
 
 use super::tools;
+use crate::request;
 use crate::session::{self, Event};
 use crate::turn::{self, Item, ToolCall, ToolStatus, UserContent};
 
@@ -111,6 +112,31 @@ impl SessionState {
             method: format!("can_use_tool:{tool}"),
             turn_id: self.turn_id.clone(),
             summary: Some(command.unwrap_or(tool).to_owned()),
+        }]
+    }
+
+    /// Claude Code asked to use a tool and waits for the host's answer.
+    pub(super) fn requested(&mut self, mut request: request::Request) -> Vec<Event> {
+        request.turn_id = self.turn_id.clone();
+        vec![Event::Request { request }]
+    }
+
+    /// A forwarded request is no longer pending. A refused tool call then
+    /// ends declined, like one Keel declined itself.
+    pub(super) fn request_resolved(
+        &mut self,
+        id: &str,
+        outcome: request::Outcome,
+        tool_use_id: Option<&str>,
+    ) -> Vec<Event> {
+        if let (request::Outcome::Answered { decision }, Some(tool)) = (&outcome, tool_use_id)
+            && decision.is_refusal()
+        {
+            self.declined.insert(tool.to_owned());
+        }
+        vec![Event::RequestResolved {
+            id: id.to_owned(),
+            outcome,
         }]
     }
 

@@ -28,7 +28,7 @@ and their native configuration.
 | --- | --- |
 | Sessions | Start, resume, and list sessions; read stored conversation history |
 | Streaming and recovery | Receive messages, tool activity, and turn events; recover attributed activity through sequenced records and snapshots |
-| Interactive requests | Answer action approvals, scoped permission grants, structured questions, and Pi extension dialogs asynchronously |
+| Interactive requests | Forward tool permission prompts and answer them asynchronously: allow once, allow for the session, deny, or deny and stop (Claude Code; opt in with `Settings::forward_requests`) |
 | Permissions and planning | Configure native approval rules and sandbox settings; select plan mode and transition to execution |
 | Models and settings | Discover models; select and update model, effort, speed, and permission settings during a session |
 | Active input | Steer ongoing work or queue follow-up input through supported native operations |
@@ -73,6 +73,7 @@ Runnable examples are included in the repository:
 | [sessions](crates/keel/examples/sessions.rs) | List sessions and read history |
 | [chat](crates/keel/examples/chat.rs) | Start or resume a session and stream replies |
 | [observe](crates/keel/examples/observe.rs) | Inspect stored agents, tasks, and logs |
+| [approve](crates/keel/examples/approve.rs) | Answer an agent's permission requests from the terminal |
 
 From a repository checkout:
 

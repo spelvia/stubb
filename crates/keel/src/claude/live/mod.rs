@@ -160,6 +160,27 @@ impl Attachment {
         );
     }
 
+    pub(super) fn requested(&self, tool_use_id: Option<&str>, request: crate::request::Request) {
+        self.state.lock().expect("observation lock").requested(
+            tool_use_id,
+            request,
+            &self.records,
+            &self.legacy,
+        );
+    }
+
+    pub(super) fn request_resolved(
+        &self,
+        tool_use_id: Option<&str>,
+        id: &str,
+        outcome: crate::request::Outcome,
+    ) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .request_resolved(tool_use_id, id, outcome, &self.records, &self.legacy);
+    }
+
     pub(super) fn close(&self, reason: session::CloseReason) {
         self.state
             .lock()

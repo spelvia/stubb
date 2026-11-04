@@ -21,12 +21,14 @@ use tokio::task::JoinHandle;
 
 use super::live;
 use crate::process::Environment;
+use crate::request::{self, Decision, Outcome};
 use crate::{Error, Result, observation, session};
 
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const DECLINED: &str =
     "Keel cannot approve tool use yet, so this request was declined. Continue without it.";
+const DENIED: &str = "The user denied this tool call.";
 
 /// Request full descendant conversations on the existing native stream.
 /// This adds observation traffic; it does not create agents or change permissions.
@@ -55,6 +57,8 @@ pub(super) struct Launch<'a> {
     pub model: Option<&'a str>,
     pub effort: Option<&'a str>,
     pub fast_mode: Option<bool>,
+    /// Forward permission prompts to the host instead of declining them.
+    pub forward_requests: bool,
 }
 
 pub(super) struct ClaudeProcess {
@@ -73,6 +77,17 @@ struct Shared {
     /// Keel asked the process to stop, so its exit is not a disconnect.
     closing: AtomicBool,
     stderr_tail: Mutex<String>,
+    forward_requests: bool,
+    /// Forwarded permission prompts waiting for the host, by native request id.
+    requests: Mutex<HashMap<String, Pending>>,
+}
+
+/// A forwarded `can_use_tool` prompt and what its answer needs.
+struct Pending {
+    native_id: Value,
+    tool_use_id: Option<String>,
+    input: Value,
+    suggestions: Option<Value>,
 }
 
 impl ClaudeProcess {
@@ -141,6 +156,8 @@ impl ClaudeProcess {
             closed: Mutex::new(None),
             closing: AtomicBool::new(false),
             stderr_tail: Mutex::new(String::new()),
+            forward_requests: launch.forward_requests,
+            requests: Mutex::new(HashMap::new()),
         });
         let stderr_task = tokio::spawn({
             let shared = Arc::clone(&shared);
@@ -295,6 +312,50 @@ impl ClaudeProcess {
         }
     }
 
+    /// Answers a forwarded permission prompt.
+    pub(super) async fn respond(
+        &self,
+        session_id: &str,
+        id: &str,
+        decision: Decision,
+    ) -> Result<()> {
+        let not_found = || Error::RequestNotFound {
+            session_id: session_id.to_owned(),
+            id: id.to_owned(),
+        };
+        let response = {
+            let requests = self.shared.requests.lock().expect("requests lock");
+            let pending = requests.get(id).ok_or_else(not_found)?;
+            permission_response(pending, &decision)?
+        };
+        let Some(pending) = self
+            .shared
+            .requests
+            .lock()
+            .expect("requests lock")
+            .remove(id)
+        else {
+            // Withdrawn while the answer was being prepared.
+            return Err(not_found());
+        };
+        self.shared
+            .write(&json!({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": pending.native_id,
+                    "response": response,
+                },
+            }))
+            .await?;
+        self.shared.observation.request_resolved(
+            pending.tool_use_id.as_deref(),
+            id,
+            Outcome::Answered { decision },
+        );
+        Ok(())
+    }
+
     /// Starts a turn. The message uuid becomes the turn id: Claude Code
     /// stores it and echoes it back as `user_message_uuid`.
     pub(super) async fn send_user(
@@ -328,6 +389,7 @@ impl ClaudeProcess {
     pub(super) async fn close(&self) {
         // An exited process already announced `Closed { Exited }`.
         if !self.shared.closing.swap(true, Ordering::Relaxed) && self.is_alive() {
+            self.shared.withdraw_all();
             self.shared.observation.close(session::CloseReason::Client);
         }
         self.shared.stdin.lock().await.take();
@@ -399,7 +461,12 @@ impl Shared {
                 self.complete(message.get("response").unwrap_or(&Value::Null))
             }
             Some("control_request") => self.answer(&message).await,
-            Some("control_cancel_request" | "keep_alive") => {}
+            Some("control_cancel_request") => {
+                if let Some(id) = message.get("request_id") {
+                    self.withdraw(&native_key(id));
+                }
+            }
+            Some("keep_alive") => {}
             _ => {
                 self.observation.message(&message);
             }
@@ -425,12 +492,17 @@ impl Shared {
         let _ = reply_tx.send(reply);
     }
 
-    /// Requests from Claude Code. Permission prompts are declined, since
-    /// Keel cannot approve tool use yet; anything else is unsupported.
+    /// Requests from Claude Code. Permission prompts are forwarded to the
+    /// host when the session asked for it, and declined otherwise; anything
+    /// else is unsupported.
     async fn answer(&self, message: &Value) {
         let id = message.get("request_id").cloned().unwrap_or(Value::Null);
         let request = message.get("request").unwrap_or(&Value::Null);
         let subtype = request.get("subtype").and_then(Value::as_str).unwrap_or("");
+        if subtype == "can_use_tool" && self.forward_requests {
+            self.forward(id, request);
+            return;
+        }
         let reply = if subtype == "can_use_tool" {
             let tool = request
                 .get("tool_name")
@@ -463,6 +535,68 @@ impl Shared {
         let _ = self.write(&reply).await;
     }
 
+    /// Reports a permission prompt to the host and keeps it until answered.
+    /// The reader moves on, so the rest of the stream keeps flowing.
+    fn forward(&self, native_id: Value, request: &Value) {
+        let text = |key: &str| request.get(key).and_then(Value::as_str).map(str::to_owned);
+        let tool_use_id = text("tool_use_id");
+        let input = request.get("input").cloned().unwrap_or(Value::Null);
+        let suggestions = request
+            .get("permission_suggestions")
+            .filter(|s| s.as_array().is_some_and(|s| !s.is_empty()))
+            .cloned();
+        let id = native_key(&native_id);
+        let forwarded = request::Request {
+            id: id.clone(),
+            turn_id: None,
+            kind: request::Kind::Tool {
+                name: text("tool_name").unwrap_or_default(),
+                display_name: text("display_name"),
+                description: text("description"),
+                input: input.clone(),
+                tool_call_id: tool_use_id.clone(),
+                can_allow_for_session: suggestions.is_some(),
+            },
+            native: request.clone(),
+        };
+        self.requests.lock().expect("requests lock").insert(
+            id,
+            Pending {
+                native_id,
+                tool_use_id: tool_use_id.clone(),
+                input,
+                suggestions,
+            },
+        );
+        self.observation
+            .requested(tool_use_id.as_deref(), forwarded);
+    }
+
+    /// A pending prompt ended without an answer.
+    fn withdraw(&self, id: &str) {
+        let pending = self.requests.lock().expect("requests lock").remove(id);
+        if let Some(pending) = pending {
+            self.observation.request_resolved(
+                pending.tool_use_id.as_deref(),
+                id,
+                Outcome::Withdrawn,
+            );
+        }
+    }
+
+    fn withdraw_all(&self) {
+        let ids = self
+            .requests
+            .lock()
+            .expect("requests lock")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.withdraw(&id);
+        }
+    }
+
     /// Marks the process gone and fails pending requests. An exit Keel did
     /// not ask for is reported to subscribers as a disconnect.
     fn close(&self) {
@@ -480,10 +614,52 @@ impl Shared {
         *self.closed.lock().expect("closed lock") = Some(reason.clone());
         self.pending.lock().expect("pending lock").clear();
         if !self.closing.load(Ordering::Relaxed) {
+            self.withdraw_all();
             self.observation
                 .close(session::CloseReason::Exited { message: reason });
         }
     }
+}
+
+/// Request ids are strings in practice; anything else keeps its JSON text.
+fn native_key(id: &Value) -> String {
+    id.as_str().map_or_else(|| id.to_string(), str::to_owned)
+}
+
+/// The `can_use_tool` answer for a decision, in the Agent SDK's shape.
+fn permission_response(pending: &Pending, decision: &Decision) -> Result<Value> {
+    let tool_use_id = &pending.tool_use_id;
+    Ok(match decision {
+        Decision::Allow => json!({
+            "behavior": "allow",
+            "updatedInput": pending.input,
+            "toolUseID": tool_use_id,
+        }),
+        Decision::AllowForSession => {
+            let Some(suggestions) = &pending.suggestions else {
+                return Err(Error::Unsupported {
+                    operation: "allow_for_session",
+                });
+            };
+            json!({
+                "behavior": "allow",
+                "updatedInput": pending.input,
+                "updatedPermissions": suggestions,
+                "toolUseID": tool_use_id,
+            })
+        }
+        Decision::Deny { message } => json!({
+            "behavior": "deny",
+            "message": message.as_deref().unwrap_or(DENIED),
+            "toolUseID": tool_use_id,
+        }),
+        Decision::Cancel => json!({
+            "behavior": "deny",
+            "message": DENIED,
+            "interrupt": true,
+            "toolUseID": tool_use_id,
+        }),
+    })
 }
 
 async fn read_loop(shared: Arc<Shared>, stdout: ChildStdout) {
@@ -494,4 +670,208 @@ async fn read_loop(shared: Arc<Shared>, stdout: ChildStdout) {
     // Give the stderr reader a moment to capture the exit message.
     tokio::time::sleep(Duration::from_millis(100)).await;
     shared.close();
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+    use tokio::sync::broadcast;
+
+    use super::{ClaudeProcess, Conversation, Launch, Pending, permission_response};
+    use crate::process::Environment;
+    use crate::request::{Decision, Kind, Outcome};
+    use crate::session::Event;
+
+    const PROMPT: &str = r#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"hello.txt","content":"hi"},"description":"hello.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_1"}}"#;
+
+    struct Fake {
+        folder: PathBuf,
+        process: ClaudeProcess,
+        events: broadcast::Receiver<Event>,
+    }
+
+    impl Fake {
+        /// A `claude` that sends `PROMPT`, then `after_prompt`, and writes
+        /// the next line it reads to `reply` in the folder.
+        fn start(after_prompt: &str, forward_requests: bool) -> Self {
+            let folder =
+                std::env::temp_dir().join(format!("keel-request-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&folder).unwrap();
+            let executable = folder.join("claude");
+            crate::process::write_executable(
+                &executable,
+                &format!(
+                    "#!/bin/sh\nprintf '%s\\n' '{PROMPT}'\n{after_prompt}\nIFS= read -r reply\nprintf '%s' \"$reply\" > \"$(dirname \"$0\")/reply\"\nIFS= read -r unexpected\n"
+                ),
+            );
+            let environment = Environment::inherit();
+            let process = ClaudeProcess::spawn(&Launch {
+                executable: &executable,
+                cwd: &folder,
+                config_dir: None,
+                environment: &environment,
+                conversation: Conversation::New { id: "session-1" },
+                model: None,
+                effort: None,
+                fast_mode: None,
+                forward_requests,
+            })
+            .unwrap();
+            let events = process.subscribe();
+            Self {
+                folder,
+                process,
+                events,
+            }
+        }
+
+        async fn next(&mut self) -> Event {
+            tokio::time::timeout(Duration::from_secs(5), self.events.recv())
+                .await
+                .expect("an event")
+                .expect("an open stream")
+        }
+
+        async fn reply(&self) -> Value {
+            let path = self.folder.join("reply");
+            for _ in 0..100 {
+                if let Ok(text) = std::fs::read_to_string(&path)
+                    && !text.is_empty()
+                {
+                    return serde_json::from_str(&text).unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("the fake claude received no reply");
+        }
+    }
+
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.folder);
+        }
+    }
+
+    #[tokio::test]
+    async fn forwards_a_prompt_and_writes_the_hosts_answer() {
+        let mut fake = Fake::start("", true);
+        let Event::Request { request } = fake.next().await else {
+            panic!("expected a request");
+        };
+        assert_eq!(request.id, "req-1");
+        assert_eq!(
+            request.kind,
+            Kind::Tool {
+                name: "Write".into(),
+                display_name: Some("Write".into()),
+                description: Some("hello.txt".into()),
+                input: json!({"file_path": "hello.txt", "content": "hi"}),
+                tool_call_id: Some("toolu_1".into()),
+                can_allow_for_session: true,
+            }
+        );
+        fake.process
+            .respond("session-1", "req-1", Decision::Allow)
+            .await
+            .unwrap();
+        assert_eq!(
+            fake.next().await,
+            Event::RequestResolved {
+                id: "req-1".into(),
+                outcome: Outcome::Answered {
+                    decision: Decision::Allow
+                },
+            }
+        );
+        assert_eq!(
+            fake.reply().await,
+            json!({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": "req-1",
+                    "response": {
+                        "behavior": "allow",
+                        "updatedInput": {"file_path": "hello.txt", "content": "hi"},
+                        "toolUseID": "toolu_1",
+                    },
+                },
+            })
+        );
+        let again = fake
+            .process
+            .respond("session-1", "req-1", Decision::Allow)
+            .await;
+        assert!(matches!(again, Err(crate::Error::RequestNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_prompt_is_withdrawn() {
+        let mut fake = Fake::start(
+            r#"printf '%s\n' '{"type":"control_cancel_request","request_id":"req-1"}'"#,
+            true,
+        );
+        assert!(matches!(fake.next().await, Event::Request { .. }));
+        assert_eq!(
+            fake.next().await,
+            Event::RequestResolved {
+                id: "req-1".into(),
+                outcome: Outcome::Withdrawn,
+            }
+        );
+        let late = fake
+            .process
+            .respond("session-1", "req-1", Decision::Allow)
+            .await;
+        assert!(matches!(late, Err(crate::Error::RequestNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn without_forwarding_prompts_are_still_declined() {
+        let mut fake = Fake::start("", false);
+        assert!(matches!(
+            fake.next().await,
+            Event::RequestDeclined { method, .. } if method == "can_use_tool:Write"
+        ));
+        assert_eq!(
+            fake.reply().await["response"]["response"]["behavior"],
+            "deny"
+        );
+    }
+
+    #[test]
+    fn answers_follow_the_agent_sdk_shape() {
+        let pending = Pending {
+            native_id: json!("req-1"),
+            tool_use_id: Some("toolu_1".into()),
+            input: json!({"command": "ls"}),
+            suggestions: Some(json!([{"type": "setMode", "mode": "acceptEdits"}])),
+        };
+        let session = permission_response(&pending, &Decision::AllowForSession).unwrap();
+        assert_eq!(session["updatedPermissions"][0]["mode"], "acceptEdits");
+        let deny = permission_response(
+            &pending,
+            &Decision::Deny {
+                message: Some("not now".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(deny["behavior"], "deny");
+        assert_eq!(deny["message"], "not now");
+        assert!(deny.get("interrupt").is_none());
+        let cancel = permission_response(&pending, &Decision::Cancel).unwrap();
+        assert_eq!(cancel["interrupt"], true);
+
+        let without = Pending {
+            suggestions: None,
+            ..pending
+        };
+        assert!(matches!(
+            permission_response(&without, &Decision::AllowForSession),
+            Err(crate::Error::Unsupported { .. })
+        ));
+    }
 }

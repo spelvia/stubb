@@ -119,6 +119,7 @@ impl Claude {
             model: None,
             effort: None,
             fast_mode: None,
+            forward_requests: false,
         })?;
         let result = async {
             process
@@ -152,6 +153,7 @@ impl Claude {
             model: None,
             effort: None,
             fast_mode: None,
+            forward_requests: false,
         })?;
         let version = tokio::spawn(version(
             self.config.executable.clone(),
@@ -305,6 +307,7 @@ impl Claude {
             model: settings.model.as_deref(),
             effort: settings.effort.as_deref(),
             fast_mode: settings.fast_mode,
+            forward_requests: settings.forward_requests,
         })?;
         let init = match process
             .control(process::initialize_request(), self.config.startup_timeout)
@@ -536,6 +539,18 @@ impl session::Driver for ClaudeSession {
         Box::pin(async move {
             self.process
                 .interrupt_turn(turn_id, self.request_timeout)
+                .await
+        })
+    }
+
+    fn respond<'a>(
+        &'a self,
+        request_id: &'a str,
+        decision: crate::request::Decision,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            self.process
+                .respond(&self.session_id, request_id, decision)
                 .await
         })
     }

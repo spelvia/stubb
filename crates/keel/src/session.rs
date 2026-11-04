@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::provider::BoxFuture;
-use crate::{Error, Result, observation, turn};
+use crate::{Error, Result, observation, request, turn};
 
 /// A session loaded into a running harness.
 ///
@@ -102,6 +102,14 @@ impl Session {
         self.driver.interrupt(turn_id).await
     }
 
+    /// Answers a pending [`Event::Request`]. Only sessions started or resumed
+    /// with [`Settings::forward_requests`] receive requests. An id that is not
+    /// pending, because it was answered or withdrawn, is
+    /// [`Error::RequestNotFound`].
+    pub async fn respond(&self, request_id: &str, decision: request::Decision) -> Result<()> {
+        self.driver.respond(request_id, decision).await
+    }
+
     /// Detaches from the session. Stored history is kept.
     pub async fn close(&self) -> Result<()> {
         self.driver.close().await
@@ -180,6 +188,19 @@ pub trait Driver: Send + Sync {
     /// Asks the agent to stop a running turn, which then ends with
     /// [`turn::Status::Interrupted`].
     fn interrupt<'a>(&'a self, turn_id: &'a str) -> BoxFuture<'a, Result<()>>;
+    /// Answers a forwarded request. Adapters that never forward requests keep
+    /// the default, which reports the operation as unsupported.
+    fn respond<'a>(
+        &'a self,
+        _request_id: &'a str,
+        _decision: request::Decision,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "respond",
+            })
+        })
+    }
     /// Detaches from the session, announcing [`Event::Closed`] with
     /// [`CloseReason::Client`] if it was still live.
     fn close(&self) -> BoxFuture<'_, Result<()>>;
@@ -246,6 +267,11 @@ pub struct Settings {
     /// Provider-specific start/resume permission overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<crate::permission::Configuration>,
+    /// Forward the agent's requests, such as tool permission prompts, as
+    /// [`Event::Request`] and wait for [`Session::respond`]. Off by default:
+    /// Keel then declines them itself. See [`crate::request`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub forward_requests: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -317,8 +343,17 @@ pub enum Event {
         message: String,
         retrying: bool,
     },
-    /// The agent asked for something Keel cannot answer yet, such as an
-    /// approval, so Keel declined it. Approval events will replace this.
+    /// The agent is waiting for an answer; reply with [`Session::respond`].
+    /// Only sent when the session forwards requests.
+    Request { request: request::Request },
+    /// A forwarded request is no longer pending.
+    RequestResolved {
+        id: String,
+        outcome: request::Outcome,
+    },
+    /// The agent asked for something Keel did not forward, such as an
+    /// approval in a session without [`Settings::forward_requests`], so Keel
+    /// declined it.
     RequestDeclined {
         method: String,
         turn_id: Option<String>,

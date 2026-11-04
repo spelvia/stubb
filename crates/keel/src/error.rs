@@ -58,6 +58,11 @@ pub enum Error {
     #[error("no task {id} in session {session_id}")]
     TaskNotFound { session_id: String, id: String },
 
+    /// No pending request with this id: it was never sent, or it was already
+    /// answered or withdrawn.
+    #[error("no pending request {id} in session {session_id}")]
+    RequestNotFound { session_id: String, id: String },
+
     /// Another client (for example an IDE or a second process) holds the
     /// session open for writing. Its history can still be read.
     #[error("session {id} is in use by another client: {message}")]
@@ -82,6 +87,7 @@ impl Error {
             Self::Unsupported { .. } => "unsupported",
             Self::AgentNotFound { .. } => "agent_not_found",
             Self::TaskNotFound { .. } => "task_not_found",
+            Self::RequestNotFound { .. } => "request_not_found",
             Self::SessionInUse { .. } => "session_in_use",
             Self::Io(_) => "io_error",
         }
