@@ -47,6 +47,14 @@ pub enum Error {
     #[error("no stored session {id}")]
     SessionNotFound { id: String },
 
+    /// An image given with [`crate::turn::Input`] could not be read.
+    #[error("could not read image {path}: {source}")]
+    ImageUnreadable {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     /// This adapter cannot provide the requested operation. An empty result
     /// must not be used to disguise unavailable discovery or history.
     #[error("unsupported operation: {operation}")]
@@ -84,6 +92,7 @@ impl Error {
             Self::Decode { .. } => "decode_error",
             Self::InvalidSetting { .. } => "invalid_setting",
             Self::SessionNotFound { .. } => "session_not_found",
+            Self::ImageUnreadable { .. } => "image_unreadable",
             Self::Unsupported { .. } => "unsupported",
             Self::AgentNotFound { .. } => "agent_not_found",
             Self::TaskNotFound { .. } => "task_not_found",

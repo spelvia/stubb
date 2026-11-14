@@ -477,9 +477,17 @@ impl session::Driver for PiSession {
                     stderr: "the Pi process for this session has exited".to_owned(),
                 });
             }
+            let mut images = Vec::with_capacity(input.images.len());
+            for image in &input.images {
+                images.push(json!({
+                    "type": "image",
+                    "data": image.base64().await?,
+                    "mimeType": image.mime_type,
+                }));
+            }
             let turn_id = self
                 .process
-                .send_user(&input.text, self.request_timeout)
+                .send_user(&input.text, images, self.request_timeout)
                 .await?;
             Ok(turn::Receipt { turn_id })
         })

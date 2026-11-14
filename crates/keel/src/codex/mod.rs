@@ -614,7 +614,12 @@ impl session::Driver for CodexSession {
                     "turn/start",
                     &types::TurnStartParams {
                         thread_id: &self.thread_id,
-                        input: vec![types::UserInput::Text { text: &input.text }],
+                        input: input
+                            .images
+                            .iter()
+                            .map(|image| types::UserInput::LocalImage { path: &image.path })
+                            .chain([types::UserInput::Text { text: &input.text }])
+                            .collect(),
                     },
                     self.request_timeout,
                 )

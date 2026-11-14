@@ -207,7 +207,12 @@ impl PiProcess {
 
     /// Starts a turn by sending a prompt, and returns the turn id once Pi
     /// has echoed the prompt's user message, before any reply.
-    pub(super) async fn send_user(&self, text: &str, timeout: Duration) -> Result<String> {
+    pub(super) async fn send_user(
+        &self,
+        text: &str,
+        images: Vec<Value>,
+        timeout: Duration,
+    ) -> Result<String> {
         if !self.shared.state.lock().expect("state lock").prompt_sent() {
             return Err(Error::Rpc {
                 method: "prompt".to_owned(),
@@ -218,7 +223,14 @@ impl PiProcess {
         let (started_tx, started_rx) = oneshot::channel();
         *self.shared.prompted.lock().expect("prompted lock") = Some(started_tx);
         let sent = self
-            .command(json!({ "type": "prompt", "message": text }), timeout)
+            .command(
+                if images.is_empty() {
+                    json!({ "type": "prompt", "message": text })
+                } else {
+                    json!({ "type": "prompt", "message": text, "images": images })
+                },
+                timeout,
+            )
             .await;
         let handled = match &sent {
             Ok(data) => data.get("disposition").and_then(Value::as_str) == Some("handled"),

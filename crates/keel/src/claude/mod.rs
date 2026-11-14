@@ -529,7 +529,7 @@ impl session::Driver for ClaudeSession {
             }
             let turn_id = uuid::Uuid::new_v4().to_string();
             self.process
-                .send_user(&self.session_id, &turn_id, &input.text)
+                .send_user(&self.session_id, &turn_id, &input)
                 .await?;
             Ok(turn::Receipt { turn_id })
         })

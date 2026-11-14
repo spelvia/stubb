@@ -138,9 +138,19 @@ impl Attachment {
             .message(message, &self.records, &self.legacy);
     }
 
+    #[cfg(test)]
     pub(super) fn turn_started(&self, id: &str, text: &str) {
+        self.turn_started_with(
+            id,
+            vec![crate::turn::UserContent::Text {
+                text: text.to_owned(),
+            }],
+        );
+    }
+
+    pub(super) fn turn_started_with(&self, id: &str, content: Vec<crate::turn::UserContent>) {
         let mut state = self.state.lock().expect("observation lock");
-        let events = state.root.mapper.turn_started(id, text);
+        let events = state.root.mapper.turn_started_with(id, content);
         state.root_events(events, &self.records, &self.legacy);
     }
 

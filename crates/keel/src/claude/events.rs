@@ -54,13 +54,26 @@ impl SessionState {
     }
 
     /// A user message Keel sent; `turn_id` is its uuid.
+    #[cfg(test)]
     pub(super) fn turn_started(&mut self, turn_id: &str, text: &str) -> Vec<Event> {
+        self.turn_started_with(
+            turn_id,
+            vec![UserContent::Text {
+                text: text.to_owned(),
+            }],
+        )
+    }
+
+    /// A user message Keel sent, with images or other content.
+    pub(super) fn turn_started_with(
+        &mut self,
+        turn_id: &str,
+        content: Vec<UserContent>,
+    ) -> Vec<Event> {
         self.turn_id = Some(turn_id.to_owned());
         let item = Item::UserMessage {
             id: turn_id.to_owned(),
-            content: vec![UserContent::Text {
-                text: text.to_owned(),
-            }],
+            content,
         };
         vec![
             Event::Status {

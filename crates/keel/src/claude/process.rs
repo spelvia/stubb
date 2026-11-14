@@ -362,9 +362,21 @@ impl ClaudeProcess {
         &self,
         session_id: &str,
         turn_id: &str,
-        text: &str,
+        input: &crate::turn::Input,
     ) -> Result<()> {
-        self.shared.observation.turn_started(turn_id, text);
+        // Images go first, as Anthropic advises; each is read before the
+        // turn is announced, so an unreadable one fails cleanly.
+        let mut content = Vec::with_capacity(input.images.len() + 1);
+        for image in &input.images {
+            content.push(json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.mime_type, "data": image.base64().await? },
+            }));
+        }
+        content.push(json!({ "type": "text", "text": input.text }));
+        self.shared
+            .observation
+            .turn_started_with(turn_id, crate::turn::user_content(input));
         let sent = self
             .shared
             .write(&json!({
@@ -372,7 +384,7 @@ impl ClaudeProcess {
                 "uuid": turn_id,
                 "session_id": session_id,
                 "parent_tool_use_id": null,
-                "message": { "role": "user", "content": [{ "type": "text", "text": text }] },
+                "message": { "role": "user", "content": content },
             }))
             .await;
         if let Err(error) = &sent {

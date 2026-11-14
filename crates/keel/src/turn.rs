@@ -181,12 +181,72 @@ pub enum Delta {
 #[serde(rename_all = "camelCase")]
 pub struct Input {
     pub text: String,
+    /// Images on the agent's machine, sent with the text. Claude Code and Pi
+    /// receive their bytes; Codex reads them from their paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Image>,
 }
 
 impl Input {
     pub fn text(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
+        Self {
+            text: text.into(),
+            images: Vec::new(),
+        }
     }
+
+    /// Adds images to the message.
+    #[must_use]
+    pub fn with_images(mut self, images: Vec<Image>) -> Self {
+        self.images = images;
+        self
+    }
+}
+
+/// An image file for an [`Input`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Image {
+    /// An absolute path on the agent's machine.
+    pub path: std::path::PathBuf,
+    /// `image/png`, `image/jpeg`, `image/gif` or `image/webp`.
+    pub mime_type: String,
+}
+
+impl Image {
+    pub fn new(path: impl Into<std::path::PathBuf>, mime_type: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            mime_type: mime_type.into(),
+        }
+    }
+
+    /// The file's bytes, base64-encoded.
+    pub(crate) async fn base64(&self) -> crate::Result<String> {
+        use base64::Engine as _;
+        let bytes =
+            tokio::fs::read(&self.path)
+                .await
+                .map_err(|source| crate::Error::ImageUnreadable {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+}
+
+/// How a user message with images is recorded: the images, then the text.
+pub(crate) fn user_content(input: &Input) -> Vec<UserContent> {
+    input
+        .images
+        .iter()
+        .map(|image| UserContent::Image {
+            source: image.path.display().to_string(),
+        })
+        .chain([UserContent::Text {
+            text: input.text.clone(),
+        }])
+        .collect()
 }
 
 /// Acknowledgement that the provider accepted an [`Input`] and started a turn.
@@ -216,4 +276,41 @@ pub struct Usage {
     /// The whole session so far.
     pub total: TokenCount,
     pub context_window: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn images_are_recorded_before_the_text() {
+        let input =
+            Input::text("what is this?").with_images(vec![Image::new("/tmp/a.png", "image/png")]);
+        assert_eq!(
+            user_content(&input),
+            vec![
+                UserContent::Image {
+                    source: "/tmp/a.png".into()
+                },
+                UserContent::Text {
+                    text: "what is this?".into()
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn images_are_read_as_base64() {
+        let path = std::env::temp_dir().join(format!("keel-image-{}.bin", std::process::id()));
+        std::fs::write(&path, b"hi").unwrap();
+        assert_eq!(
+            Image::new(&path, "image/png").base64().await.unwrap(),
+            "aGk="
+        );
+        std::fs::remove_file(&path).unwrap();
+        let missing = Image::new("/nonexistent/keel.png", "image/png")
+            .base64()
+            .await;
+        assert_eq!(missing.unwrap_err().code(), "image_unreadable");
+    }
 }

@@ -389,6 +389,7 @@ pub(crate) struct TurnStartParams<'a> {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum UserInput<'a> {
     Text { text: &'a str },
+    LocalImage { path: &'a std::path::Path },
 }
 
 #[derive(Debug, Deserialize)]
@@ -474,4 +475,25 @@ pub(crate) struct ErrorNotification {
     pub will_retry: bool,
     #[serde(default)]
     pub turn_id: Option<String>,
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn images_are_sent_as_local_paths() {
+        let path = std::path::Path::new("/tmp/a.png");
+        let input = vec![
+            UserInput::LocalImage { path },
+            UserInput::Text { text: "hi" },
+        ];
+        assert_eq!(
+            serde_json::to_value(input).unwrap(),
+            serde_json::json!([
+                { "type": "localImage", "path": "/tmp/a.png" },
+                { "type": "text", "text": "hi" },
+            ])
+        );
+    }
 }
