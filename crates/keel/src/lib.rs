@@ -27,6 +27,7 @@ mod files;
 pub mod observation;
 pub mod permission;
 pub mod pi;
+pub mod probe;
 pub mod process;
 pub mod provider;
 pub mod request;
