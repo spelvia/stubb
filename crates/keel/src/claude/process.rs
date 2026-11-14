@@ -59,6 +59,8 @@ pub(super) struct Launch<'a> {
     pub fast_mode: Option<bool>,
     /// Forward permission prompts to the host instead of declining them.
     pub forward_requests: bool,
+    /// Folders outside `cwd` it may read (`--add-dir`).
+    pub additional_directories: &'a [PathBuf],
 }
 
 pub(super) struct ClaudeProcess {
@@ -128,6 +130,9 @@ impl ClaudeProcess {
         }
         if let Some(effort) = launch.effort {
             command.args(["--effort", effort]);
+        }
+        for directory in launch.additional_directories {
+            command.arg("--add-dir").arg(directory);
         }
         if let Some(fast_mode) = launch.fast_mode {
             command.args(["--settings", &json!({ "fastMode": fast_mode }).to_string()]);
@@ -730,6 +735,7 @@ mod tests {
                 effort: None,
                 fast_mode: None,
                 forward_requests,
+                additional_directories: &[],
             })
             .unwrap();
             let events = process.subscribe();

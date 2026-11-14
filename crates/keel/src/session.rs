@@ -272,6 +272,12 @@ pub struct Settings {
     /// Keel then declines them itself. See [`crate::request`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub forward_requests: bool,
+    /// Folders outside `cwd` the agent may read without asking, such as
+    /// where the host keeps files attached to messages. Claude Code is
+    /// given them with `--add-dir`; Codex's sandbox and Pi already read
+    /// anywhere.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_directories: Vec<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

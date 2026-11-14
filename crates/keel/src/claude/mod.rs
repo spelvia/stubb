@@ -120,6 +120,7 @@ impl Claude {
             effort: None,
             fast_mode: None,
             forward_requests: false,
+            additional_directories: &[],
         })?;
         let result = async {
             process
@@ -154,6 +155,7 @@ impl Claude {
             effort: None,
             fast_mode: None,
             forward_requests: false,
+            additional_directories: &[],
         })?;
         let version = tokio::spawn(version(
             self.config.executable.clone(),
@@ -308,6 +310,7 @@ impl Claude {
             effort: settings.effort.as_deref(),
             fast_mode: settings.fast_mode,
             forward_requests: settings.forward_requests,
+            additional_directories: &settings.additional_directories,
         })?;
         let init = match process
             .control(process::initialize_request(), self.config.startup_timeout)
