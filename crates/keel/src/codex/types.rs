@@ -383,6 +383,11 @@ pub(crate) enum ToolStatus {
 pub(crate) struct TurnStartParams<'a> {
     pub thread_id: &'a str,
     pub input: Vec<UserInput<'a>>,
+    /// Overrides for this turn and the ones after it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<super::ApprovalPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_policy: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]

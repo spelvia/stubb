@@ -166,6 +166,26 @@ impl Permissions {
         })
     }
 
+    /// The sandbox as `turn/start` takes it (a policy, not a mode name).
+    pub(crate) fn turn_sandbox(&self) -> Option<Value> {
+        self.sandbox.as_ref().map(|sandbox| match sandbox {
+            Sandbox::ReadOnly => json!({ "type": "readOnly" }),
+            Sandbox::DangerFullAccess => json!({ "type": "dangerFullAccess" }),
+            Sandbox::WorkspaceWrite {
+                writable_roots,
+                network_access,
+                exclude_tmpdir_env_var,
+                exclude_slash_tmp,
+            } => json!({
+                "type": "workspaceWrite",
+                "writableRoots": writable_roots.clone().unwrap_or_default(),
+                "networkAccess": network_access.unwrap_or(false),
+                "excludeTmpdirEnvVar": exclude_tmpdir_env_var.unwrap_or(false),
+                "excludeSlashTmp": exclude_slash_tmp.unwrap_or(false),
+            }),
+        })
+    }
+
     pub(crate) fn apply_config(&self, config: &mut HashMap<String, Value>) {
         if let Some(Sandbox::WorkspaceWrite {
             writable_roots,
@@ -196,6 +216,32 @@ impl Permissions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turns_take_the_sandbox_as_a_policy() {
+        let permissions = Permissions {
+            sandbox: Some(Sandbox::WorkspaceWrite {
+                writable_roots: Some(vec!["/work".into()]),
+                network_access: None,
+                exclude_tmpdir_env_var: None,
+                exclude_slash_tmp: None,
+            }),
+            ..Permissions::default()
+        };
+        assert_eq!(
+            permissions.turn_sandbox().unwrap(),
+            json!({"type": "workspaceWrite", "writableRoots": ["/work"], "networkAccess": false,
+                   "excludeTmpdirEnvVar": false, "excludeSlashTmp": false})
+        );
+        let full = Permissions {
+            sandbox: Some(Sandbox::DangerFullAccess),
+            ..Permissions::default()
+        };
+        assert_eq!(
+            full.turn_sandbox().unwrap(),
+            json!({"type": "dangerFullAccess"})
+        );
+    }
 
     #[test]
     fn granular_policy_preserves_each_native_prompt_category() {

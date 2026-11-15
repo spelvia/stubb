@@ -13,6 +13,7 @@ mod fixtures;
 mod history;
 mod live;
 mod output;
+mod permissions;
 mod process;
 mod store;
 mod stored_tasks;
@@ -40,6 +41,8 @@ use store::Store;
 pub(crate) const PROVIDER_ID: &str = "claude";
 const DEFAULT_PAGE: u32 = 50;
 const DEFAULT_TURN_PAGE: usize = 20;
+
+pub use permissions::{PermissionMode, Permissions};
 
 /// How to reach the Claude Code installation.
 #[derive(Debug, Clone)]
@@ -121,6 +124,7 @@ impl Claude {
             fast_mode: None,
             forward_requests: false,
             additional_directories: &[],
+            permission_mode: None,
         })?;
         let result = async {
             process
@@ -156,6 +160,7 @@ impl Claude {
             fast_mode: None,
             forward_requests: false,
             additional_directories: &[],
+            permission_mode: None,
         })?;
         let version = tokio::spawn(version(
             self.config.executable.clone(),
@@ -311,6 +316,7 @@ impl Claude {
             fast_mode: settings.fast_mode,
             forward_requests: settings.forward_requests,
             additional_directories: &settings.additional_directories,
+            permission_mode: permission_mode(&settings),
         })?;
         let init = match process
             .control(process::initialize_request(), self.config.startup_timeout)
@@ -376,7 +382,10 @@ impl Claude {
     /// not listed are passed through, since Claude accepts full model ids;
     /// their effort is then not checked.
     async fn validate(&self, settings: &session::Settings) -> Result<()> {
-        if settings.permissions.is_some() {
+        if matches!(
+            settings.permissions,
+            Some(crate::permission::Configuration::Codex(_))
+        ) {
             return Err(Error::Unsupported {
                 operation: "permission_configuration",
             });
@@ -477,7 +486,38 @@ struct ClaudeSession {
     request_timeout: Duration,
 }
 
+/// The permission mode requested in `settings`, if any.
+fn permission_mode(settings: &session::Settings) -> Option<PermissionMode> {
+    match &settings.permissions {
+        Some(crate::permission::Configuration::Claude(permissions)) => permissions.mode,
+        _ => None,
+    }
+}
+
 impl session::Driver for ClaudeSession {
+    fn set_permissions(
+        &self,
+        configuration: crate::permission::Configuration,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            let crate::permission::Configuration::Claude(permissions) = configuration else {
+                return Err(Error::Unsupported {
+                    operation: "permission_configuration",
+                });
+            };
+            let Some(mode) = permissions.mode else {
+                return Ok(());
+            };
+            self.process
+                .control(
+                    json!({ "subtype": "set_permission_mode", "mode": mode.as_str() }),
+                    self.request_timeout,
+                )
+                .await
+                .map(|_| ())
+        })
+    }
+
     fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.process.subscribe()
     }

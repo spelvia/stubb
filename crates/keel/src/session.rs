@@ -90,6 +90,16 @@ impl Session {
         self.driver.task_output(id, query).await
     }
 
+    /// Changes what the agent may do without asking, from now on: Claude
+    /// Code switches mode at once; Codex applies it from its next turn. Pi
+    /// reports it unsupported, as does a configuration for another provider.
+    pub async fn set_permissions(
+        &self,
+        configuration: crate::permission::Configuration,
+    ) -> Result<()> {
+        self.driver.set_permissions(configuration).await
+    }
+
     /// Starts a turn with `input`. Subscribe first to receive all of its
     /// events; the receipt only confirms that the turn started.
     pub async fn send(&self, input: turn::Input) -> Result<turn::Receipt> {
@@ -198,6 +208,18 @@ pub trait Driver: Send + Sync {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "respond",
+            })
+        })
+    }
+    /// Changes the permission configuration of the live session. Adapters
+    /// that cannot keep the default, which reports it as unsupported.
+    fn set_permissions(
+        &self,
+        _configuration: crate::permission::Configuration,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "set_permissions",
             })
         })
     }

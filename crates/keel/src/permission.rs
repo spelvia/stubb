@@ -4,17 +4,21 @@
 //! settings retain native defaults or stored values; Keel never invents a common
 //! permission mode across providers.
 //!
-//! Use [`crate::codex::Permissions`] through [`Configuration::Codex`].
+//! Use [`crate::codex::Permissions`] through [`Configuration::Codex`] and
+//! [`crate::claude::Permissions`] through [`Configuration::Claude`].
 //! [`crate::session::Info::permissions`] separates requested settings from native
-//! reported configuration. Claude and Pi reject Codex settings.
+//! reported configuration. Each provider rejects the others' settings; Pi
+//! has none.
 
 use serde::{Deserialize, Serialize};
 
-/// Requested permission configuration. Other providers reject a Codex variant.
+/// Requested permission configuration. Other providers reject a variant
+/// that is not theirs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "camelCase")]
 pub enum Configuration {
     Codex(crate::codex::Permissions),
+    Claude(crate::claude::Permissions),
 }
 
 /// Native configuration reported at session attachment time.

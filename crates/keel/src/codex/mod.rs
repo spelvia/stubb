@@ -324,12 +324,15 @@ impl Codex {
         settings: &session::Settings,
         new_thread: bool,
     ) -> Result<ThreadSettingsParams> {
-        let permissions = settings
-            .permissions
-            .as_ref()
-            .map(|configuration| match configuration {
-                crate::permission::Configuration::Codex(permissions) => permissions,
-            });
+        let permissions = match &settings.permissions {
+            None => None,
+            Some(crate::permission::Configuration::Codex(permissions)) => Some(permissions),
+            Some(_) => {
+                return Err(Error::Unsupported {
+                    operation: "permission_configuration",
+                });
+            }
+        };
         if let Some(permissions) = permissions {
             permissions.validate()?;
         }
@@ -462,6 +465,7 @@ impl Codex {
             thread_id,
             attachment,
             request_timeout: self.config.request_timeout,
+            overrides: std::sync::Mutex::new(None),
         };
         Session::new(info, Arc::new(driver))
     }
@@ -521,6 +525,9 @@ struct CodexSession {
     thread_id: String,
     attachment: Arc<live::Attachment>,
     request_timeout: Duration,
+    /// Permissions changed during the session, sent with the next turn
+    /// (Codex keeps them for the turns after it).
+    overrides: std::sync::Mutex<Option<Permissions>>,
 }
 
 impl CodexSession {
@@ -606,13 +613,37 @@ impl session::Driver for CodexSession {
         Box::pin(self.stop(crate::control::Target::Task { id: id.into() }))
     }
 
+    fn set_permissions(
+        &self,
+        configuration: crate::permission::Configuration,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            let crate::permission::Configuration::Codex(permissions) = configuration else {
+                return Err(Error::Unsupported {
+                    operation: "permission_configuration",
+                });
+            };
+            permissions.validate()?;
+            if permissions.profile.is_some() {
+                return Err(Error::Unsupported {
+                    operation: "permission_profile_during_session",
+                });
+            }
+            *self.overrides.lock().expect("overrides lock") = Some(permissions);
+            Ok(())
+        })
+    }
+
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
         Box::pin(async move {
+            let overrides = self.overrides.lock().expect("overrides lock").take();
             let response: types::TurnStartResponse = self
                 .connection
                 .request(
                     "turn/start",
                     &types::TurnStartParams {
+                        approval_policy: overrides.as_ref().and_then(|p| p.approval_policy.clone()),
+                        sandbox_policy: overrides.as_ref().and_then(Permissions::turn_sandbox),
                         thread_id: &self.thread_id,
                         input: input
                             .images

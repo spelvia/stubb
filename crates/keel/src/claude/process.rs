@@ -61,6 +61,8 @@ pub(super) struct Launch<'a> {
     pub forward_requests: bool,
     /// Folders outside `cwd` it may read (`--add-dir`).
     pub additional_directories: &'a [PathBuf],
+    /// `--permission-mode`; `None` keeps Claude Code's own.
+    pub permission_mode: Option<super::PermissionMode>,
 }
 
 pub(super) struct ClaudeProcess {
@@ -130,6 +132,9 @@ impl ClaudeProcess {
         }
         if let Some(effort) = launch.effort {
             command.args(["--effort", effort]);
+        }
+        if let Some(mode) = launch.permission_mode {
+            command.args(["--permission-mode", mode.as_str()]);
         }
         for directory in launch.additional_directories {
             command.arg("--add-dir").arg(directory);
@@ -736,6 +741,7 @@ mod tests {
                 fast_mode: None,
                 forward_requests,
                 additional_directories: &[],
+                permission_mode: None,
             })
             .unwrap();
             let events = process.subscribe();
