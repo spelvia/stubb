@@ -2,7 +2,8 @@
 //!
 //! [ACP](https://agentclientprotocol.com) is an open protocol between
 //! editors and coding agents: JSON-RPC over the agent's standard input and
-//! output. Many agents speak it, natively or through an adapter. One
+//! output. Many agents speak it, natively or through an adapter; the
+//! [`registry`](crate::registry) lists them and how to start them. One
 //! [`AcpProvider`] drives one such agent, given a command that starts it
 //! (a [`Launch`]).
 //!
@@ -161,6 +162,12 @@ impl AcpConfig {
             request_timeout: Duration::from_secs(60),
             auth_method: None,
         }
+    }
+
+    /// A configuration for a [registry](crate::registry) entry, started with
+    /// `launch` (see [`Entry::resolve`](crate::registry::Entry::resolve)).
+    pub fn from_entry(entry: &crate::registry::Entry, launch: Launch) -> Self {
+        Self::new(&entry.id, &entry.name, launch)
     }
 }
 

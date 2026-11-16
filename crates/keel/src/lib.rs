@@ -3,7 +3,8 @@
 //! Keel drives coding agent harnesses through their native protocols and
 //! exposes them through one provider-neutral interface, [`Provider`].
 //! Codex, Claude Code and Pi are supported natively, and any agent that
-//! speaks the Agent Client Protocol through [`acp`].
+//! speaks the Agent Client Protocol through [`acp`], with the agents of the
+//! official ACP [`registry`].
 //!
 //! Types are grouped by concept and meant to be used through their module:
 //! [`catalog`] (models and their settings), [`session`] (conversations) and
@@ -32,6 +33,7 @@ pub mod pi;
 pub mod probe;
 pub mod process;
 pub mod provider;
+pub mod registry;
 pub mod request;
 mod rpc;
 pub mod session;
