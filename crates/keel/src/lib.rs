@@ -35,6 +35,7 @@ mod rpc;
 pub mod session;
 pub mod task;
 pub mod turn;
+pub mod update;
 pub mod usage;
 
 pub use catalog::Catalog;
