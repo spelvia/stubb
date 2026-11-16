@@ -3,8 +3,10 @@
 ## Overview
 
 Keel is a Rust library for embedding coding agents in your application. It connects
-to Codex, Claude Code, and Pi through their native protocols and exposes a shared
-asynchronous API for sessions, streaming, interactive requests, and agent controls.
+to Codex, Claude Code, and Pi through their native protocols, and to any agent that
+speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), and
+exposes a shared asynchronous API for sessions, streaming, interactive requests,
+and agent controls.
 
 Use Keel to build chat interfaces, development tools, or agent dashboards.
 Keel manages transport and session state; your application handles presentation
@@ -51,10 +53,21 @@ remains unknown.
 | OpenAI Codex | `codex` | App-server JSON-RPC |
 | Claude Code | `claude` | Stream JSON |
 | Pi | `pi` | RPC |
+| Any ACP agent | Configured per agent (for example `npx -y @google/gemini-cli --acp`) | ACP v1 (JSON-RPC over stdio) |
+
+ACP agents are configured at run time with `keel::acp::AcpProvider`. The
+`keel::registry` module parses the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+(a copy is bundled for offline use) and turns an entry into the command that starts
+it, through `npx`, `uvx`, or a binary the host has downloaded. Keel performs no
+downloads itself. `keel::acp::probe` reports whether an agent is installed and,
+optionally, its name, version and sign-in methods from `initialize`.
 
 Codex and Claude expose different permission, sandbox, and planning controls.
 Pi supports extension dialogs, steering, and follow-up queues, but has no built-in
-permission system, sandbox, or plan mode. Keel preserves these native differences.
+permission system, sandbox, or plan mode. ACP agents report their models, efforts
+and modes per session, ask for permissions through ACP, and read or write files
+only within the session's folder; Keel offers them no terminals. Keel preserves
+these native differences.
 
 ## Documentation and examples
 
