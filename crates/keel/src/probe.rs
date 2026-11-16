@@ -279,14 +279,8 @@ async fn run(path: &Path, args: &[&str]) -> Result<Output, String> {
         .kill_on_drop(true);
     // Version managers put the interpreter next to the script; make sure a
     // script found through the login shell can find it too.
-    if let Some(dir) = path.parent() {
-        let mut paths = vec![dir.to_path_buf()];
-        if let Some(current) = std::env::var_os("PATH") {
-            paths.extend(std::env::split_paths(&current));
-        }
-        if let Ok(joined) = std::env::join_paths(paths) {
-            command.env("PATH", joined);
-        }
+    if let Some(joined) = path_beside(path, std::env::var_os("PATH")) {
+        command.env("PATH", joined);
     }
     let shown = format!("`{} {}`", path.display(), args.join(" "));
     match tokio::time::timeout(COMMAND_TIMEOUT, command.output()).await {
@@ -303,9 +297,22 @@ async fn run(path: &Path, args: &[&str]) -> Result<Output, String> {
     }
 }
 
+/// `current` with the folder of `executable` in front, so a script found
+/// through the login shell finds the interpreter installed next to it.
+pub(crate) fn path_beside(executable: &Path, current: Option<OsString>) -> Option<OsString> {
+    let dir = executable
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())?;
+    let mut paths = vec![dir.to_path_buf()];
+    if let Some(current) = current {
+        paths.extend(std::env::split_paths(&current));
+    }
+    std::env::join_paths(paths).ok()
+}
+
 /// Finds an executable: as given when it contains a path separator,
 /// otherwise on `PATH`, then through the login shell.
-async fn resolve(program: &Path) -> Option<PathBuf> {
+pub(crate) async fn resolve(program: &Path) -> Option<PathBuf> {
     if program.components().count() > 1 {
         return is_executable(program).then(|| program.to_path_buf());
     }
@@ -362,7 +369,7 @@ fn stable(path: PathBuf) -> PathBuf {
     }
 }
 
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
         return false;
     };
