@@ -32,6 +32,7 @@ pub mod permission;
 pub mod pi;
 pub mod probe;
 pub mod process;
+pub mod profile;
 pub mod provider;
 pub mod registry;
 pub mod request;
