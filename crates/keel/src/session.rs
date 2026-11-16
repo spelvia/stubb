@@ -100,6 +100,20 @@ impl Session {
         self.driver.set_permissions(configuration).await
     }
 
+    /// The agent's named modes, such as `ask` or `code`, and the current
+    /// one. Only ACP agents that report modes have them; other sessions
+    /// report the operation unsupported.
+    pub fn modes(&self) -> Result<Modes> {
+        self.driver.modes()
+    }
+
+    /// Switches the agent to one of its [`modes`](Session::modes), from
+    /// now on. A mode the agent does not offer is
+    /// [`Error::InvalidSetting`].
+    pub async fn set_mode(&self, mode_id: &str) -> Result<()> {
+        self.driver.set_mode(mode_id).await
+    }
+
     /// Starts a turn with `input`. Subscribe first to receive all of its
     /// events; the receipt only confirms that the turn started.
     pub async fn send(&self, input: turn::Input) -> Result<turn::Receipt> {
@@ -223,6 +237,20 @@ pub trait Driver: Send + Sync {
             })
         })
     }
+    /// The agent's named modes. Adapters without modes keep the default,
+    /// which reports the operation as unsupported.
+    fn modes(&self) -> Result<Modes> {
+        Err(Error::Unsupported { operation: "modes" })
+    }
+    /// Switches the agent's mode. Adapters without modes keep the default,
+    /// which reports the operation as unsupported.
+    fn set_mode<'a>(&'a self, _mode_id: &'a str) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "set_mode",
+            })
+        })
+    }
     /// Detaches from the session, announcing [`Event::Closed`] with
     /// [`CloseReason::Client`] if it was still live.
     fn close(&self) -> BoxFuture<'_, Result<()>>;
@@ -330,6 +358,26 @@ pub struct Info {
     /// Whether the provider has written the session to storage. Codex only
     /// does so after the first turn; until then the session lives in memory.
     pub persisted: bool,
+}
+
+/// Named modes an agent offers, such as `ask`, `architect` and `code`. A
+/// mode changes how the agent works, often what it may do without asking.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Modes {
+    /// The id of the mode the agent is in.
+    pub current: String,
+    pub available: Vec<Mode>,
+}
+
+/// One of an agent's [`Modes`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mode {
+    /// Pass this to [`Session::set_mode`].
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
 }
 
 /// Events for a live session, delivered to every subscriber.
