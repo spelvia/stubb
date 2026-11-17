@@ -99,6 +99,34 @@ jobs:
       - name: Package and verify crate
         run: cargo package -p keel --locked
 
+  semver:
+    name: Semver checks
+    needs: build-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Release tags are the baseline.
+          fetch-depth: 0
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --version 0.51.0 --locked
+      - name: Check the API against the latest release
+        run: |
+          baseline=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          if [ -z "$baseline" ]; then
+            echo "::notice::No release tag yet; semver checks start with the first release."
+            exit 0
+          fi
+          echo "Baseline: $baseline"
+          cargo semver-checks -p keel --baseline-rev "$baseline"
+
   dependencies:
     name: Dependencies
     needs: build-test
@@ -107,7 +135,7 @@ jobs:
   required:
     name: CI passed
     if: always()
-    needs: [lint, build-test, documentation, package, dependencies]
+    needs: [lint, build-test, documentation, package, semver, dependencies]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
