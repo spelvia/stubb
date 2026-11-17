@@ -19,6 +19,7 @@ use crate::process::Environment;
 /// What [`probe`] found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Report {
     /// The program that was found, or `None` when it is not installed.
     pub path: Option<PathBuf>,
@@ -46,6 +47,7 @@ impl Report {
 /// The agent's `agentInfo`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct AgentInfo {
     pub name: String,
     pub title: Option<String>,
@@ -55,6 +57,7 @@ pub struct AgentInfo {
 /// One of the agent's `authMethods`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct AuthMethod {
     /// Pass this as [`AcpConfig::auth_method`](super::AcpConfig::auth_method).
     pub id: String,
@@ -67,6 +70,7 @@ pub struct AuthMethod {
 /// What the agent can do, from its `agentCapabilities`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Capabilities {
     /// `session/load`: stored sessions can be continued, replaying history.
     pub load_session: bool,

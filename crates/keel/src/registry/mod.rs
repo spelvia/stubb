@@ -39,6 +39,7 @@ const BUNDLED: &str = include_str!("registry.json");
 /// A registry file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Registry {
     /// The registry format's version, such as `1.0.0`.
     pub version: String,
@@ -67,6 +68,7 @@ impl Registry {
 /// One agent in the registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Entry {
     /// A stable identifier, such as `gemini`.
     pub id: String,
@@ -95,6 +97,7 @@ pub struct Entry {
 /// The ways an agent is distributed. At least one is set.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Distribution {
     /// Archives by platform, such as `linux-x86_64` (see [`platform`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -108,6 +111,7 @@ pub struct Distribution {
 /// A binary archive for one platform.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Binary {
     /// Where to download the archive (`.tar.gz`, `.tar.bz2`, `.zip`, or a
     /// bare executable).
@@ -126,6 +130,7 @@ pub struct Binary {
 /// A package run by `npx` or `uvx`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Package {
     /// The package, usually with its version, such as
     /// `@google/gemini-cli@0.68.0`.
@@ -171,6 +176,7 @@ pub enum LaunchError {
 /// [`Entry::availability`] found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Availability {
     pub method: Method,
     /// Whether the agent can be started this way now.

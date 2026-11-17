@@ -73,6 +73,7 @@ pub enum Auth {
 /// What [`probe`] found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Report {
     pub harness: Harness,
     /// The executable that was found, or `None` when it is not installed.
@@ -85,6 +86,20 @@ pub struct Report {
 }
 
 impl Report {
+    /// A report of `harness` that found nothing yet: not installed, no
+    /// version, auth unknown. Set the public fields to describe more, for
+    /// example in tests; the struct is `#[non_exhaustive]`, so it cannot be
+    /// built with a struct literal outside Keel.
+    pub fn new(harness: Harness) -> Self {
+        Self {
+            harness,
+            path: None,
+            version: None,
+            auth: Auth::Unknown,
+            detail: None,
+        }
+    }
+
     /// Whether the executable was found.
     pub fn installed(&self) -> bool {
         self.path.is_some()
@@ -100,11 +115,8 @@ pub async fn probe(harness: Harness, executable: Option<&Path>) -> Report {
         .unwrap_or_else(|| PathBuf::from(harness.program()));
     let Some(path) = resolve(&program).await else {
         return Report {
-            harness,
-            path: None,
-            version: None,
-            auth: Auth::Unknown,
             detail: Some(format!("`{}` was not found", program.display())),
+            ..Report::new(harness)
         };
     };
     let mut detail = None;

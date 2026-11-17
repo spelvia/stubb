@@ -6,6 +6,7 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Account {
     pub provider: String,
     pub plan: Option<String>,
@@ -18,6 +19,7 @@ pub struct Account {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Window {
     pub id: String,
     pub label: String,

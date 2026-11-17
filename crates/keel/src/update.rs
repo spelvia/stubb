@@ -39,6 +39,7 @@ const OUTPUT_TAIL: usize = 4_000;
 /// dist-tag of the channel it follows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Package {
     /// Such as `@openai/codex`.
     pub npm: String,
@@ -74,6 +75,7 @@ pub enum InstallMethod {
 /// What updating a harness would do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Plan {
     pub harness: Harness,
     pub method: InstallMethod,
@@ -90,6 +92,7 @@ pub struct Plan {
 /// What [`update`] did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Outcome {
     pub harness: Harness,
     pub before: Option<String>,

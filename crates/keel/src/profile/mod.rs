@@ -26,6 +26,7 @@ const PI: &str = include_str!("pi.svg");
 /// An agent as a host presents it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Profile {
     /// Keel's provider identifier for its own harnesses (`claude`), the
     /// registry's for registry agents (`gemini`).
@@ -42,6 +43,7 @@ pub struct Profile {
 /// An agent's logo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Logo {
     pub source: LogoSource,
     /// Drawn in one colour (`currentColor`): hosts show it in the text's
