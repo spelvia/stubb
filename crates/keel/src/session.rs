@@ -297,6 +297,7 @@ pub struct Summary {
 /// Runtime state of a session inside the provider process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Status {
     /// Stored but not loaded into a running harness.
     NotLoaded,
@@ -417,6 +418,7 @@ pub const EVENT_FORMAT: u32 = 1;
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Event {
     /// The session's runtime state changed, for example to working or idle.
     Status { status: Status },
@@ -478,6 +480,7 @@ pub enum Event {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum CloseReason {
     /// [`Session::close`] was called.
     Client,

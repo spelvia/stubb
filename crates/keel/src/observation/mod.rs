@@ -40,6 +40,7 @@ pub struct Record {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Event {
     Control {
         receipt: crate::control::Receipt,
@@ -67,6 +68,7 @@ pub enum Event {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum UsageScope {
     AgentOnly,
     IncludesDescendants,

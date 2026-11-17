@@ -53,6 +53,7 @@ pub struct Logo {
 /// Where a logo is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum LogoSource {
     /// The SVG itself, shipped with Keel.
     Svg(String),
@@ -198,7 +199,7 @@ mod tests {
 
     #[test]
     fn own_harnesses_ship_their_logos() {
-        for harness in Harness::ALL {
+        for &harness in Harness::ALL {
             let profile = of(harness);
             let LogoSource::Svg(svg) = &profile.logo.source else {
                 panic!("{harness:?} has no logo");

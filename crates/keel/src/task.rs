@@ -31,6 +31,7 @@ pub struct Summary {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Kind {
     Command {
         command: String,
@@ -46,6 +47,7 @@ pub enum Kind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Status {
     Unknown,
     Pending,
@@ -62,6 +64,7 @@ pub enum Status {
 /// running-only native listing establishes neither an exit code nor an outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum OutputAvailability {
     Unknown,
     Unavailable,

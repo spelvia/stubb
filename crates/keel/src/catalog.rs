@@ -54,6 +54,7 @@ pub struct Effort {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum FastMode {
     Unavailable,
     Available {

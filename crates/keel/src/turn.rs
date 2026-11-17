@@ -39,6 +39,7 @@ pub struct Turn {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Status {
     InProgress,
     Completed,
@@ -56,6 +57,7 @@ pub enum Status {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Item {
     UserMessage {
         id: String,
@@ -96,6 +98,7 @@ pub enum Item {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum UserContent {
     Text {
         text: String,
@@ -123,6 +126,7 @@ pub struct ToolCall {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum ToolStatus {
     InProgress,
     Completed,
@@ -139,6 +143,7 @@ pub enum ToolStatus {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum ToolDetail {
     Command {
         command: String,
@@ -182,6 +187,7 @@ pub struct FileChange {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum FileChangeKind {
     Add,
     Delete,
@@ -197,6 +203,7 @@ pub enum FileChangeKind {
 /// Streamed content for an item, appended to the field named by the variant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Delta {
     /// Text of an [`Item::AgentMessage`].
     Text { text: String },

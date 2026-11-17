@@ -15,6 +15,7 @@ pub struct Feature {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Support {
     Supported,
     Unsupported,
@@ -25,6 +26,7 @@ pub enum Support {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Coverage {
     Complete,
     Partial,

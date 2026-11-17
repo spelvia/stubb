@@ -68,6 +68,7 @@ pub enum Kind {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Decision {
     /// Allow this call once.
     Allow,
@@ -97,6 +98,7 @@ impl Decision {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Outcome {
     /// The host answered with [`Session::respond`](crate::Session::respond).
     Answered { decision: Decision },

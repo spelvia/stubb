@@ -25,6 +25,7 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 /// A harness Keel can drive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Harness {
     Claude,
     Codex,
@@ -32,8 +33,9 @@ pub enum Harness {
 }
 
 impl Harness {
-    /// Every harness Keel supports, in a stable order.
-    pub const ALL: [Harness; 3] = [Harness::Claude, Harness::Codex, Harness::Pi];
+    /// Every harness Keel supports, in a stable order. A slice, so that
+    /// adding a harness does not change its type.
+    pub const ALL: &'static [Harness] = &[Harness::Claude, Harness::Codex, Harness::Pi];
 
     /// Keel's provider identifier, as [`crate::Provider::id`] reports it.
     pub fn id(self) -> &'static str {
@@ -57,6 +59,7 @@ impl Harness {
 /// Whether the harness has credentials it can use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Auth {
     /// Signed in; `account` when the harness names it (an email, for
     /// example).

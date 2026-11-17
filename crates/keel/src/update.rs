@@ -56,6 +56,7 @@ impl Package {
 /// How a harness was installed, told from where its executable really is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum InstallMethod {
     /// Claude Code's own installer (`~/.local/share/claude/versions`).
     Native,
@@ -102,6 +103,7 @@ pub struct Outcome {
 
 /// Why [`update`] could not run.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UpdateError {
     #[error("{0} is not installed")]
     NotInstalled(&'static str),

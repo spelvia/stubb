@@ -6,6 +6,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Errors returned by Keel operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("executable not found: {executable}")]
     ExecutableNotFound { executable: PathBuf },

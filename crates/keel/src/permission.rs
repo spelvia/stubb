@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 /// that is not theirs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Configuration {
     Codex(crate::codex::Permissions),
     Claude(crate::claude::Permissions),
@@ -24,6 +25,7 @@ pub enum Configuration {
 /// Native configuration reported at session attachment time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum EffectiveConfiguration {
     Codex(crate::codex::EffectivePermissions),
 }

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// How much Claude Code may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum PermissionMode {
     /// Asks before edits and commands (forwarded as requests when the
     /// session forwards them).

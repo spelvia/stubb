@@ -24,6 +24,7 @@ pub struct Permissions {
 /// Codex's native approval policy, including granular prompt categories.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ApprovalPolicy {
     Untrusted,
     OnRequest,
@@ -47,6 +48,7 @@ pub struct GranularApproval {
 /// Native sandbox selection. This does not change the approval policy.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "camelCase", deny_unknown_fields)]
+#[non_exhaustive]
 pub enum Sandbox {
     ReadOnly,
     WorkspaceWrite {
@@ -82,6 +84,7 @@ pub enum Sandbox {
 /// Confirmed native sandbox policy. A selected mode alone is not this report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum SandboxPolicy {
     DangerFullAccess,
     ReadOnly {

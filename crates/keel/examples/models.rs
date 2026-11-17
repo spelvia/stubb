@@ -78,6 +78,8 @@ async fn main() -> keel::Result<()> {
                 }
             ),
             FastMode::Unavailable => println!("  fast mode: unavailable"),
+            // Fast mode states added by later versions of Keel.
+            _ => println!("  fast mode: unknown"),
         }
     }
 

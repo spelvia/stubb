@@ -139,6 +139,7 @@ pub struct Package {
 /// A way to start an agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Method {
     /// The binary for this platform, unpacked into an install folder.
     Binary,
@@ -150,6 +151,7 @@ pub enum Method {
 
 /// Why an entry cannot be started a given way.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum LaunchError {
     #[error("{agent} is not distributed through {method:?}")]
     NotDistributed { agent: String, method: Method },

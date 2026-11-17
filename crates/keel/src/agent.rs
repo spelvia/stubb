@@ -31,6 +31,7 @@ pub struct Summary {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[non_exhaustive]
 pub enum Parent {
     /// This is the root agent; exactly one exists in an observed session.
     Root,
@@ -53,6 +54,7 @@ pub struct Origin {
 /// Latest work state, rather than a permanent prohibition on future turns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Status {
     Unknown,
     Pending,
