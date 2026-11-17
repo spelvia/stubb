@@ -17,7 +17,7 @@ and user decisions.
 Requires **Rust 1.99.0 or newer**. Add Keel to your Rust project:
 
 ```sh
-cargo add keel@0.1.0
+cargo add keel@0.1.0-rc.1
 ```
 
 Install and authenticate the CLI for each provider you want to use. For Pi,
@@ -71,7 +71,7 @@ these native differences.
 
 ## Documentation and examples
 
-See the [0.1.0 API documentation](https://docs.rs/keel/0.1.0/keel/) for provider
+See the [0.1.0-rc.1 API documentation](https://docs.rs/keel/0.1.0-rc.1/keel/) for provider
 setup, session operations, event handling, and capability details.
 
 Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md),
