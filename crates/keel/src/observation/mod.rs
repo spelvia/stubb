@@ -59,6 +59,10 @@ pub enum Event {
         /// an implicit promise that totals exclude descendants.
         usage_scope: Option<UsageScope>,
     },
+    /// An observation this version of Keel does not know, kept as it was
+    /// read (deserialization only).
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +70,8 @@ pub enum Event {
 pub enum UsageScope {
     AgentOnly,
     IncludesDescendants,
+    /// Not reported, or a scope this version of Keel does not know.
+    #[serde(other)]
     Unknown,
 }
 

@@ -622,7 +622,10 @@ async fn forwarded_permission_requests_round_trip() {
             can_allow_for_session,
             input,
             ..
-        } = &request.kind;
+        } = &request.kind
+        else {
+            panic!("expected a tool request, got {:?}", request.kind);
+        };
         assert_eq!(name, "edit");
         assert_eq!(display_name.as_deref(), Some("Edit a.txt"));
         assert_eq!(tool_call_id.as_deref(), Some("edit-1"));

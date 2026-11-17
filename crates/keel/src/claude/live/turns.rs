@@ -124,6 +124,7 @@ impl Branch {
                     turn::Status::Failed => agent::Status::Failed,
                     turn::Status::Interrupted => agent::Status::Interrupted,
                     turn::Status::InProgress => agent::Status::Running,
+                    turn::Status::Unknown => agent::Status::Unknown,
                 };
             }
             _ => {}
@@ -140,6 +141,7 @@ fn item_id(item: &turn::Item) -> Option<&str> {
         | turn::Item::Plan { id, .. } => Some(id),
         turn::Item::ToolCall(call) => Some(&call.id),
         turn::Item::Other { id, .. } => id.as_deref(),
+        turn::Item::Unknown(raw) => raw.get("id").and_then(serde_json::Value::as_str),
     }
 }
 

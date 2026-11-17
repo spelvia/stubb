@@ -44,6 +44,9 @@ pub enum Status {
     Completed,
     Interrupted,
     Failed,
+    /// A status this version of Keel does not know (deserialization only).
+    #[serde(other)]
+    Unknown,
 }
 
 /// One step of a turn.
@@ -81,6 +84,10 @@ pub enum Item {
         kind: String,
         raw: Value,
     },
+    /// An item type this version of Keel does not know, kept as it was read
+    /// (deserialization only; see [`crate::session::EVENT_FORMAT`]).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -90,9 +97,19 @@ pub enum Item {
     rename_all_fields = "camelCase"
 )]
 pub enum UserContent {
-    Text { text: String },
-    Image { source: String },
-    Other { kind: String },
+    Text {
+        text: String,
+    },
+    Image {
+        source: String,
+    },
+    Other {
+        kind: String,
+    },
+    /// Content this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,6 +128,9 @@ pub enum ToolStatus {
     Completed,
     Failed,
     Declined,
+    /// A status this version of Keel does not know (deserialization only).
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -141,6 +161,10 @@ pub enum ToolDetail {
         input: Value,
         output: Option<String>,
     },
+    /// A tool kind this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,7 +185,13 @@ pub struct FileChange {
 pub enum FileChangeKind {
     Add,
     Delete,
-    Update { move_path: Option<PathBuf> },
+    Update {
+        move_path: Option<PathBuf>,
+    },
+    /// A change kind this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 /// Streamed content for an item, appended to the field named by the variant.
@@ -174,6 +204,10 @@ pub enum Delta {
     Thinking { text: String },
     /// Output of a [`ToolDetail::Command`].
     Output { text: String },
+    /// A delta this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 /// A user message that starts a new turn.

@@ -304,6 +304,9 @@ pub enum Status {
     /// A turn or background work is running.
     Active,
     Error,
+    /// A status this version of Keel does not know (deserialization only).
+    #[serde(other)]
+    Unknown,
 }
 
 /// Settings requested when starting or resuming a session. `None` keeps the
@@ -380,7 +383,30 @@ pub struct Mode {
     pub description: Option<String>,
 }
 
+/// The version of the JSON format of [`Event`] and the types it contains
+/// ([`turn::Turn`], [`turn::Item`], [`request::Request`], …).
+///
+/// Hosts that store events should store this number next to each event and
+/// check it when reading them back:
+///
+/// - Within one format, Keel only adds: new event types, new item or tool
+///   kinds, new enum values and new fields. Readers ignore unknown fields,
+///   and Keel's own types read unknown types and values as their `Unknown`
+///   variant ([`Event::Unknown`], [`turn::Item::Unknown`], …), so events a
+///   newer Keel wrote still deserialize.
+/// - The format changes when a field or type is removed or renamed, or its
+///   meaning or JSON type changes. Events stored with an older format are
+///   then documented in the changelog; events with a newer format than the
+///   host knows should be kept as they are and not interpreted.
+///
+/// See `docs/compatibility.md` in the repository for the full rules.
+pub const EVENT_FORMAT: u32 = 1;
+
 /// Events for a live session, delivered to every subscriber.
+///
+/// Serialized as JSON in format [`EVENT_FORMAT`]. Deserializing is tolerant:
+/// unknown fields are ignored and unknown event types become
+/// [`Event::Unknown`].
 ///
 /// Turns and items follow one lifecycle: a `…Start`, optional deltas, and a
 /// `…End` carrying the final state. A consumer that does not show live
@@ -437,6 +463,12 @@ pub enum Event {
     },
     /// Provider traffic Keel does not map yet, passed through unchanged.
     Raw { name: String, payload: Value },
+    /// An event this version of Keel does not know, kept as it was read:
+    /// a newer Keel's event type, or a known type in a shape this version
+    /// cannot read. Keel never emits it; it only appears when deserializing
+    /// stored events. Serializes back to the same JSON.
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 /// Why a live session ended.
@@ -453,6 +485,10 @@ pub enum CloseReason {
     Agent,
     /// The agent process exited unexpectedly.
     Exited { message: String },
+    /// A reason this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[cfg(test)]
@@ -495,5 +531,160 @@ mod tests {
             serde_json::to_value(&fast).unwrap()["tierId"],
             json!("priority")
         );
+    }
+
+    /// Events stored in format 1 read back to the same values and the same
+    /// JSON. If this test has to change, so does [`EVENT_FORMAT`].
+    #[test]
+    fn format_1_events_round_trip() {
+        let stored = [
+            json!({ "type": "status", "status": "active" }),
+            json!({ "type": "closed", "reason": { "type": "exited", "message": "boom" } }),
+            json!({ "type": "turnStart", "turnId": "t" }),
+            json!({ "type": "itemStart", "turnId": "t", "item": {
+                "type": "toolCall", "id": "c", "status": "inProgress", "durationMs": null,
+                "detail": { "kind": "command", "command": "ls", "cwd": null, "output": null, "exitCode": null }
+            } }),
+            json!({ "type": "itemDelta", "turnId": "t", "itemId": "m", "delta": { "type": "text", "text": "hi" } }),
+            json!({ "type": "itemEnd", "turnId": "t", "item": { "type": "agentMessage", "id": "m", "text": "hi" } }),
+            json!({ "type": "turnEnd", "turn": {
+                "id": "t", "status": "completed", "items": [], "startedAt": 1, "completedAt": 2,
+                "durationMs": 1000, "error": null
+            } }),
+            json!({ "type": "requestResolved", "id": "r", "outcome": {
+                "type": "answered", "decision": { "type": "deny", "message": null }
+            } }),
+            json!({ "type": "raw", "name": "x", "payload": { "a": 1 } }),
+        ];
+        for json in stored {
+            let event: Event = serde_json::from_value(json.clone()).unwrap();
+            assert!(
+                !matches!(event, Event::Unknown(_)),
+                "{json} is a known event"
+            );
+            assert_eq!(serde_json::to_value(&event).unwrap(), json);
+        }
+    }
+
+    /// A newer Keel may add fields; they are ignored.
+    #[test]
+    fn newer_events_with_extra_fields_still_read() {
+        let event: Event = serde_json::from_value(json!({
+            "type": "turnStart", "turnId": "t", "agentId": "a", "v": 2
+        }))
+        .unwrap();
+        assert_eq!(
+            event,
+            Event::TurnStart {
+                turn_id: "t".into()
+            }
+        );
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "itemEnd", "turnId": "t", "attachments": [],
+            "item": { "type": "agentMessage", "id": "m", "text": "hi", "phase": "final" }
+        }))
+        .unwrap();
+        assert_eq!(
+            event,
+            Event::ItemEnd {
+                turn_id: "t".into(),
+                item: turn::Item::AgentMessage {
+                    id: "m".into(),
+                    text: "hi".into()
+                },
+            }
+        );
+    }
+
+    /// A newer Keel may add event types, item and tool kinds and enum
+    /// values; they read as `Unknown`, and unknown events keep their JSON.
+    #[test]
+    fn newer_event_types_and_values_read_as_unknown() {
+        let future = json!({ "type": "compaction", "turnId": "t", "tokens": 12 });
+        let event: Event = serde_json::from_value(future.clone()).unwrap();
+        assert_eq!(event, Event::Unknown(future.clone()));
+        assert_eq!(serde_json::to_value(&event).unwrap(), future);
+
+        let event: Event =
+            serde_json::from_value(json!({ "type": "status", "status": "sleeping" })).unwrap();
+        assert_eq!(
+            event,
+            Event::Status {
+                status: Status::Unknown
+            }
+        );
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "closed", "reason": { "type": "evicted", "by": "x" }
+        }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            Event::Closed {
+                reason: CloseReason::Unknown(_)
+            }
+        ));
+
+        let item = json!({ "type": "webSearch", "id": "w", "query": "keel" });
+        let event: Event =
+            serde_json::from_value(json!({ "type": "itemEnd", "turnId": "t", "item": item }))
+                .unwrap();
+        assert_eq!(
+            event,
+            Event::ItemEnd {
+                turn_id: "t".into(),
+                item: turn::Item::Unknown(item)
+            }
+        );
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "itemEnd", "turnId": "t", "item": {
+                "type": "toolCall", "id": "c", "status": "queued", "durationMs": null,
+                "detail": { "kind": "browser", "url": "https://example.com" }
+            }
+        }))
+        .unwrap();
+        let Event::ItemEnd {
+            item: turn::Item::ToolCall(call),
+            ..
+        } = event
+        else {
+            panic!("expected a tool call, got {event:?}");
+        };
+        assert_eq!(call.status, turn::ToolStatus::Unknown);
+        assert!(matches!(call.detail, turn::ToolDetail::Unknown(_)));
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "itemDelta", "turnId": "t", "itemId": "i", "delta": { "type": "image", "data": "" }
+        }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            Event::ItemDelta {
+                delta: turn::Delta::Unknown(_),
+                ..
+            }
+        ));
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "turnEnd", "turn": { "id": "t", "status": "paused", "items": [] }
+        }))
+        .unwrap();
+        let Event::TurnEnd { turn } = event else {
+            panic!("expected a turn end, got {event:?}");
+        };
+        assert_eq!(turn.status, turn::Status::Unknown);
+
+        let event: Event = serde_json::from_value(json!({
+            "type": "request", "request": {
+                "id": "r", "turnId": null, "native": {}, "kind": { "type": "question", "text": "?" }
+            }
+        }))
+        .unwrap();
+        let Event::Request { request } = event else {
+            panic!("expected a request, got {event:?}");
+        };
+        assert!(matches!(request.kind, request::Kind::Unknown(_)));
     }
 }

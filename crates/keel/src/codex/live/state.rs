@@ -331,7 +331,7 @@ impl Branch {
                             summarized: true,
                         }),
                         // No command text or tool metadata is known yet.
-                        turn::Delta::Output { .. } => None,
+                        turn::Delta::Output { .. } | turn::Delta::Unknown(_) => None,
                     };
                     if let Some(item) = placeholder {
                         items.push(item);
@@ -353,6 +353,7 @@ impl Branch {
                     turn::Status::Failed => agent::Status::Failed,
                     turn::Status::Interrupted => agent::Status::Interrupted,
                     turn::Status::InProgress => agent::Status::Running,
+                    turn::Status::Unknown => agent::Status::Unknown,
                 };
                 self.status = session::Status::Idle;
             }
@@ -391,6 +392,7 @@ fn item_id(item: &turn::Item) -> Option<&str> {
         | turn::Item::Plan { id, .. } => Some(id),
         turn::Item::ToolCall(tool) => Some(&tool.id),
         turn::Item::Other { id, .. } => id.as_deref(),
+        turn::Item::Unknown(raw) => raw.get("id").and_then(serde_json::Value::as_str),
     }
 }
 

@@ -147,10 +147,14 @@ fn print_item(item: &Item) {
                     .join(", "),
                 ToolDetail::Mcp { server, tool, .. } => format!("mcp {server}.{tool}"),
                 ToolDetail::Other { name, .. } => name.clone(),
+                // Tool kinds added by later versions of Keel.
+                _ => "tool".to_owned(),
             };
             println!("  [{:?}] {what}", call.status);
         }
         Item::Other { kind, .. } => println!("  ({kind})"),
+        // Item types added by later versions of Keel.
+        _ => println!("  (unknown item)"),
     }
 }
 

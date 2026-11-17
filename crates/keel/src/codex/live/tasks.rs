@@ -186,7 +186,9 @@ impl Tasks {
                 let outcome = ended.then_some(match tool.status {
                     turn::ToolStatus::Completed => task::Status::Completed,
                     turn::ToolStatus::Failed | turn::ToolStatus::Declined => task::Status::Failed,
-                    turn::ToolStatus::InProgress => task::Status::Unknown,
+                    turn::ToolStatus::InProgress | turn::ToolStatus::Unknown => {
+                        task::Status::Unknown
+                    }
                 });
                 let turn::ToolDetail::Command { output, .. } = &tool.detail else {
                     unreachable!()

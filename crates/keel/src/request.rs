@@ -55,6 +55,10 @@ pub enum Kind {
         /// suggested a rule that allows calls like this one from now on.
         can_allow_for_session: bool,
     },
+    /// A request kind this version of Keel does not know, kept as it was
+    /// read (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 /// The host's answer to a [`Request`].
@@ -99,4 +103,8 @@ pub enum Outcome {
     /// The request ended without an answer: the agent cancelled it, or the
     /// session closed.
     Withdrawn,
+    /// An outcome this version of Keel does not know, kept as it was read
+    /// (deserialization only).
+    #[serde(untagged)]
+    Unknown(Value),
 }
