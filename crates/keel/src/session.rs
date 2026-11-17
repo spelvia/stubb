@@ -395,10 +395,10 @@ pub struct Mode {
 ///   and Keel's own types read unknown types and values as their `Unknown`
 ///   variant ([`Event::Unknown`], [`turn::Item::Unknown`], …), so events a
 ///   newer Keel wrote still deserialize.
-/// - The format changes when a field or type is removed or renamed, or its
-///   meaning or JSON type changes. Events stored with an older format are
-///   then documented in the changelog; events with a newer format than the
-///   host knows should be kept as they are and not interpreted.
+/// - The format changes, with a new minor version before 1.0, when a field
+///   or type is removed or renamed, or its meaning or JSON type changes.
+///   Events with a newer format than the host knows should be kept as they
+///   are and not interpreted.
 ///
 /// See `docs/compatibility.md` in the repository for the full rules.
 pub const EVENT_FORMAT: u32 = 1;

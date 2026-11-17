@@ -74,8 +74,10 @@ these native differences.
 See the [0.1.0 API documentation](https://docs.rs/keel/0.1.0/keel/) for provider
 setup, session operations, event handling, and capability details.
 
-Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md) and
-[agent process environment](docs/agent-environment.md).
+Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md),
+[agent process environment](docs/agent-environment.md), and
+[compatibility](docs/compatibility.md): what may change between versions,
+and how to store and read event JSON with `session::EVENT_FORMAT`.
 
 Runnable examples are included in the repository:
 
@@ -98,12 +100,22 @@ cargo run --example chat -- codex --prompt "Explain this repository"
 ## Development
 
 ```sh
-cargo test --workspace --locked
 sh .githooks/install
+RUSTFMT="$(rustup which rustfmt)" "$(rustup which cargo-fmt)" fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+cargo semver-checks -p keel --baseline-rev <latest release tag>
 ```
 
+The hooks run the formatting and Clippy checks before each commit.
+`cargo-semver-checks` (`cargo install cargo-semver-checks --locked`, or
+`nix shell nixpkgs#cargo-semver-checks`) compares the public API with a
+release; it has a baseline from the first tagged release on. Changes follow
+the [compatibility rules](docs/compatibility.md).
+
 [CI](.github/workflows/ci.yml) checks lint, builds/tests, documentation, packaging,
-and dependencies. [Dependency scans](.github/workflows/dependencies.yml) and
+semver compatibility with the latest release, and dependencies. [Dependency scans](.github/workflows/dependencies.yml) and
 [Dependabot updates](.github/dependabot.yml) also run weekly.
 
 Real-provider tests are opt-in: `cargo test --test contract -- --ignored --nocapture`.
