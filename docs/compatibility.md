@@ -39,7 +39,7 @@ cargo semver-checks -p stubb --baseline-rev <previous release tag>
 - **Structs Stubb builds for hosts are `#[non_exhaustive]`** and gain
   fields: probe reports, update packages, plans and outcomes, profiles and
   logos, registry entries and account usage. Read their fields; build them
-  only through their constructors, such as `probe::Report::new` for tests.
+  only through their constructors, such as `discovery::Report::new` for tests.
 - **Structs hosts build stay constructible**: settings, specs, queries,
   inputs, images, launches, provider configs and permissions. Build them
   with `..Default::default()` (or the type's constructor) rather than

@@ -92,7 +92,7 @@ use another agent. Every provider implements the same `stubb::Provider` trait.
 | Any ACP agent | Configured per agent, for example `npx -y @google/gemini-cli --acp` | ACP v1 (JSON-RPC over stdio) |
 
 ACP agents are configured at run time with `stubb::providers::acp::AcpProvider`. The
-`stubb::registry` module reads the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+`stubb::providers::acp::registry` module reads the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 (a copy is bundled for offline use) and turns an entry into the command that
 starts it. Stubb never downloads anything itself.
 

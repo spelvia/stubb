@@ -13,6 +13,10 @@ categories = ["api-bindings", "development-tools"]
 [lib]
 path = "src/lib.rs"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["claude", "codex", "pi", "acp"]
 claude = []
