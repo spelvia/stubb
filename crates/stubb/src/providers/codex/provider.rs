@@ -610,6 +610,22 @@ impl Provider for Codex {
         Box::pin(Codex::list_agent_turns(self, root, id, query))
     }
 
+    fn list_tasks<'a>(
+        &'a self,
+        root: &'a str,
+        query: crate::observation::task::Query,
+    ) -> BoxFuture<'a, Result<crate::observation::task::Page>> {
+        Box::pin(Codex::list_tasks(self, root, query))
+    }
+    fn task_output<'a>(
+        &'a self,
+        root: &'a str,
+        id: &'a str,
+        query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
+        Box::pin(Codex::task_output(self, root, id, query))
+    }
+
     fn start_session(&self, spec: session::Spec) -> BoxFuture<'_, Result<Session>> {
         Box::pin(Codex::start_session(self, spec))
     }

@@ -550,3 +550,39 @@ fn siblings_have_independent_items_and_outlive_the_root_turn() {
         }
     )));
 }
+
+#[test]
+fn background_terminal_output_is_read_from_native_deltas() {
+    use crate::observation::task;
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/codex-observation-0.159.0.json")).unwrap();
+    let attachment = make_attachment();
+    let started = &fixture["terminalNotifications"][0];
+    let mut params = started["params"].clone();
+    params["threadId"] = json!("root");
+    attachment.emit(super::super::events::from_notification(
+        started["method"].as_str().unwrap(),
+        params,
+    ));
+    let page: super::tasks::Page = serde_json::from_value(fixture["terminalList"].clone()).unwrap();
+    attachment.terminals("root", page.data);
+    let id = attachment.snapshot().tasks[0].id.clone();
+    attachment.emit(super::super::events::from_notification(
+        "item/commandExecution/outputDelta",
+        json!({"threadId": "root", "turnId": "captured-id-22", "itemId": "command-1", "delta": "tick\n"}),
+    ));
+    let output = attachment
+        .task_output(&id, task::OutputQuery::default())
+        .unwrap();
+    assert_eq!(output.text, "tick\n");
+    assert_eq!(output.availability, task::OutputAvailability::Partial);
+    assert!(output.eof && output.next_cursor.is_some());
+    assert_eq!(
+        attachment.snapshot().tasks[0].output,
+        task::OutputAvailability::Partial
+    );
+    assert!(matches!(
+        attachment.task_output("unknown", task::OutputQuery::default()),
+        Err(crate::Error::TaskNotFound { .. })
+    ));
+}
