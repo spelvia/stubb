@@ -36,6 +36,13 @@ while IFS= read -r line; do
         *'"threadId":"unknown"'*) printf '{{"id":%s,"error":{{"code":-32600,"message":"no rollout found for thread id unknown"}}}}\n' "$id" ;;
         *) printf '{{"id":%s,"result":{{"thread":{{"id":"fork-1","preview":"hello","cwd":"/tmp","status":{{"type":"idle"}},"createdAt":7,"updatedAt":8}},"model":"gpt-test","cwd":"/tmp"}}}}\n' "$id" ;;
       esac ;;
+    thread/read)
+      case "$line" in
+        *'"threadId":"root"'*) printf '{{"id":%s,"result":{{"thread":{{"id":"root","cwd":"/tmp","status":{{"type":"notLoaded"}},"path":"{folder}/root.jsonl"}}}}}}\n' "$id" ;;
+        *'"threadId":"child"'*) printf '{{"id":%s,"result":{{"thread":{{"id":"child","cwd":"/tmp","status":{{"type":"notLoaded"}},"parentThreadId":"root","path":"{folder}/child.jsonl"}}}}}}\n' "$id" ;;
+        *) printf '{{"id":%s,"error":{{"code":-32600,"message":"no rollout found for thread id"}}}}\n' "$id" ;;
+      esac ;;
+    thread/list) printf '{{"id":%s,"result":{{"data":[{{"id":"child","cwd":"/tmp","status":{{"type":"notLoaded"}},"parentThreadId":"root","path":"{folder}/child.jsonl"}}]}}}}\n' "$id" ;;
     thread/unsubscribe) printf '{{"id":%s,"result":{{}}}}\n' "$id" ;;
     *) printf '{{"id":%s,"error":{{"code":-32601,"message":"not in this stand-in"}}}}\n' "$id" ;;
   esac
@@ -45,6 +52,7 @@ done
         methods = folder.join("methods").display(),
         requests = folder.join("requests").display(),
         environment = folder.join("environment").display(),
+        folder = folder.display(),
     );
     crate::process::write_executable(&path, &script);
     path
@@ -344,4 +352,136 @@ async fn turns_ask_for_a_reasoning_summary() {
         CodexConfig::default().reasoning_summary.as_deref(),
         Some("auto")
     );
+}
+
+#[tokio::test]
+async fn stored_tasks_are_read_from_the_rollouts_of_the_session_and_its_descendants() {
+    use crate::observation::task;
+    let folder = folder();
+    std::fs::write(
+        folder.join("root.jsonl"),
+        include_str!("fixtures/codex-rollout-0.170.0.jsonl"),
+    )
+    .unwrap();
+    let child = include_str!("fixtures/codex-rollout-0.170.0.jsonl")
+        .lines()
+        .filter(|line| line.contains("task_complete") || line.contains("exec-child"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(folder.join("child.jsonl"), child).unwrap();
+    let codex = provider(&folder, None);
+
+    let all = codex
+        .list_tasks("root", task::Query::default())
+        .await
+        .unwrap();
+    let owned: Vec<_> = all
+        .tasks
+        .iter()
+        .map(|task| (task.id.as_str(), task.owner_agent_id.as_deref().unwrap()))
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("exec-server", "root"),
+            ("exec-interrupted", "root"),
+            ("exec-child", "child")
+        ]
+    );
+    assert!(all.next_cursor.is_none());
+    let first = codex
+        .list_tasks(
+            "root",
+            task::Query {
+                limit: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.tasks.len(), 2);
+    let rest = codex
+        .list_tasks(
+            "root",
+            task::Query {
+                cursor: first.next_cursor.clone(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(rest.tasks[0].id, "exec-child");
+    let rescoped = codex
+        .list_tasks(
+            "root",
+            task::Query {
+                owner_agent_id: Some("child".into()),
+                cursor: first.next_cursor,
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(matches!(rescoped, Err(Error::InvalidSetting { .. })));
+    let children = codex
+        .list_tasks(
+            "root",
+            task::Query {
+                owner_agent_id: Some("child".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(children.tasks.len(), 1);
+    let stranger = codex
+        .list_tasks(
+            "root",
+            task::Query {
+                owner_agent_id: Some("stranger".into()),
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(
+        matches!(stranger, Err(Error::AgentNotFound { .. })),
+        "{stranger:?}"
+    );
+
+    let mut text = String::new();
+    let mut cursor = None;
+    loop {
+        let page = codex
+            .task_output(
+                "root",
+                "exec-server",
+                task::OutputQuery {
+                    limit: Some(8),
+                    cursor,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.availability, task::OutputAvailability::Complete);
+        text.push_str(&page.text);
+        cursor = page.next_cursor;
+        if page.eof {
+            assert!(cursor.is_none());
+            break;
+        }
+    }
+    assert_eq!(text, "ready on :3000\nGET / 200\n");
+    let missing = codex
+        .task_output("root", "exec-quick", task::OutputQuery::default())
+        .await;
+    assert!(
+        matches!(missing, Err(Error::TaskNotFound { .. })),
+        "{missing:?}"
+    );
+    let unknown = codex.list_tasks("unknown", task::Query::default()).await;
+    assert!(
+        matches!(unknown, Err(Error::SessionNotFound { .. })),
+        "{unknown:?}"
+    );
+    codex.shutdown().await;
+    std::fs::remove_dir_all(folder).unwrap();
 }
