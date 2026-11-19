@@ -1,4 +1,4 @@
-//! Selected native traffic captured through keel-tester, not a synthetic scenario.
+//! Selected native traffic captured from a live session, not a synthetic scenario.
 
 use serde_json::Value;
 

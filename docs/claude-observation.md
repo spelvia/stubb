@@ -126,7 +126,7 @@ Adapter unit tests and captured protocol fixtures cover native decoding,
 routing, identity, task state, and stop handling. The scripted subprocess test
 harness has been removed, so these tests do not verify the complete process
 transport path.
-Real keel-tester checks separately exercise Sonnet 4.6 trees, siblings, nested
+Separate live checks exercise Sonnet 4.6 trees, siblings, nested
 agents, background work, progress/logs, native stops, selectable history and
 resume/continuation. These checks do not imply support for external Claude
 sessions, experimental agent teams or native features that provide no observable

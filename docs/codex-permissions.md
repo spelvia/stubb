@@ -59,9 +59,8 @@ conflicts return `InvalidSetting`; native rejection retains its RPC error.
 
 Unit tests cover wire mappings, inherited defaults, explicit overrides, granular
 policies, validation, provider boundaries, and unknown native reports. Real CLI
-checks are opt-in and use the separate keel-tester project. Its
-`backend/scripts/check-codex-permissions.py` checks configuration without inference;
-`--run-tools` adds low-effort Luna turns and filesystem/network probes in a temporary
+checks are opt-in: `STUBB_CONTRACT_PROVIDERS=codex cargo test --test contract --
+--ignored --nocapture` runs short turns against the installed Codex in a temporary
 directory. Live tests consume reported events rather than trusting model replies.
 
 Live checks passed against Codex CLI 0.159.0 using `gpt-5.6-luna`, low effort,

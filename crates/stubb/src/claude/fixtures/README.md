@@ -1,4 +1,4 @@
-Captured with Claude Code 2.1.289 through keel-tester on 2026-10-05, using
+Captured with Claude Code 2.1.289 through a live test harness on 2026-10-05, using
 `claude-sonnet-4-6`, medium effort, standard speed, in a scratch directory.
 A transparent stdin/stdout proxy recorded the existing stream-json protocol.
 
@@ -26,6 +26,6 @@ https://code.claude.com/docs/en/agent-sdk/subagents
 https://code.claude.com/docs/en/sub-agents
 
 The adapter now supports attributed trees, tasks/logs, native stops, stored
-history and resume. Real Sonnet 4.6 checks through
-keel-tester remain separate; this captured file is intentionally limited to the
+history and resume. Live Sonnet 4.6 checks
+remain separate; this captured file is intentionally limited to the
 selected native protocol traffic described above.

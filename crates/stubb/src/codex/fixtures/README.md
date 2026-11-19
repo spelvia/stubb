@@ -3,7 +3,7 @@
 `codex-model-list-0.159.3.json` records a native model catalog response.
 
 `codex-observation-0.159.0.json` contains selected native app-server traffic
-captured on 2026-10-05 through keel-tester with `gpt-6-luna`, medium effort,
+captured on 2026-10-05 through a live test harness with `gpt-6-luna`, medium effort,
 and standard speed. Session/tool identifiers and the scratch working directory
 were replaced. It is a collection of observations, not a complete replay script.
 

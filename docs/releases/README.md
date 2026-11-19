@@ -21,8 +21,8 @@
 4. Follow the Release workflow. It builds and tests the tagged code on Rust 1.99.0. It checks the tag, notes, and main CI result,
    publishes the package, then creates the GitHub Release from those notes.
    Versions with a prerelease suffix get the GitHub prerelease flag.
-5. Verify the published version on crates.io and its GitHub Release. Consumers
-   such as Ahab can then update their dependency and lockfile.
+5. Verify the published version on crates.io and its GitHub Release. Downstream
+   applications can then update their dependency and lockfile.
 
 ## Configure the publisher
 

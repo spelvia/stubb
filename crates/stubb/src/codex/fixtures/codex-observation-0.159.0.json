@@ -2,7 +2,7 @@
   "capture": {
     "codexVersion": "0.159.0",
     "model": "gpt-6-luna",
-    "description": "Selected live keel-tester traffic; native IDs and cwd replaced. Threads read after completion. Stop responses are direct native probe controls, not implemented Keel task APIs."
+    "description": "Selected live traffic; native IDs and cwd replaced. Threads read after completion. Stop responses are direct native probe controls, not implemented Keel task APIs."
   },
   "initialize": {
     "capabilities": {

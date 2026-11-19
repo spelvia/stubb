@@ -1,4 +1,4 @@
-//! Regression cases captured through keel-tester with GPT-6 Luna.
+//! Regression cases captured from live sessions with GPT-6 Luna.
 //!
 //! These exercise the existing decoders and mappers, not recursive routing.
 //! The fixture also retains native terminal list/stop responses for the later
