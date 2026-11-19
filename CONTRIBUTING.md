@@ -19,15 +19,31 @@ You need [rustup](https://rustup.rs). The repository's `rust-toolchain.toml`
 selects Rust 1.99.0, the minimum version Stubb supports, so local builds use it
 automatically.
 
+The Git hooks run with [lefthook](https://lefthook.dev) and use a few small
+tools: [taplo](https://taplo.tamasfe.dev), [typos](https://github.com/crate-ci/typos),
+[cargo-sort](https://github.com/DevinR528/cargo-sort),
+[cargo-machete](https://github.com/bnjbvr/cargo-machete) and
+[gitleaks](https://github.com/gitleaks/gitleaks). Install them with your package
+manager, or for example:
+
+```sh
+cargo install --locked taplo-cli typos-cli cargo-sort cargo-machete
+brew install lefthook gitleaks          # or: nix profile install nixpkgs#lefthook nixpkgs#gitleaks
+```
+
+Then clone, install the hooks and run the tests:
+
 ```sh
 git clone https://github.com/spelvia/stubb.git
 cd stubb
-sh .githooks/install
+lefthook install
 cargo test --workspace
 ```
 
-The Git hooks check formatting and Clippy before each commit and check that
-commit messages follow [Conventional Commits](#commit-messages).
+Before each commit, the hooks format Rust and TOML files, keep `Cargo.toml`
+sorted, check spelling and scan the staged changes for secrets. They check that
+commit messages follow [Conventional Commits](#commit-messages), and run Clippy
+and the unused-dependency check before each push.
 
 ## Before opening a pull request
 
@@ -42,7 +58,11 @@ cargo test --workspace --all-features --doc --locked
 ```
 
 CI runs these on stable Rust for every pull request, along with
-[`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) dependency checks.
+[`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) dependency checks
+and repository checks: secrets in every commit, spelling, TOML formatting,
+`Cargo.toml` order, unused dependencies, GitHub Actions lint and security
+([actionlint](https://github.com/rhysd/actionlint),
+[zizmor](https://docs.zizmor.sh)), and links between files.
 Releases are also tested on Rust 1.99.0 before publishing.
 
 ### Tests against real agents

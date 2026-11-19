@@ -6,6 +6,10 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Wait a week before proposing a new release, so a compromised or
+    # withdrawn version has time to be caught.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       compatible-updates:
@@ -18,6 +22,10 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Wait a week before proposing a new release, so a compromised or
+    # withdrawn version has time to be caught.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       actions:

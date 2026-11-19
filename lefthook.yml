@@ -1,0 +1,36 @@
+# Git hooks (lefthook). Install once per clone with `lefthook install`.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format rust files
+      glob: "*.rs"
+      run: rustfmt --edition 2024 {staged_files}
+      stage_fixed: true
+    - name: format toml files
+      glob: "*.toml"
+      run: taplo fmt {staged_files}
+      stage_fixed: true
+    - name: order Cargo.toml
+      glob: "*Cargo.toml"
+      run: cargo sort --workspace --no-format
+      stage_fixed: true
+    - name: spelling
+      run: typos --force-exclude {staged_files}
+    - name: secrets
+      run: gitleaks git --pre-commit --staged --redact --no-banner
+
+# Conventional Commits: `type(scope): summary`.
+commit-msg:
+  jobs:
+    - name: conventional commit
+      run: >-
+        head -n 1 {1} | grep -Eq '^[a-z][a-z0-9-]*(\([^()]+\))?!?: [^[:space:]].*$'
+        || { echo "Use a Conventional Commit subject, such as 'fix(acp): handle a closed connection'." >&2; exit 1; }
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: clippy
+      run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+    - name: unused dependencies
+      run: cargo machete
