@@ -2,7 +2,7 @@
 
 ## Prepare each release
 
-1. Open a PR from a `release/` branch (for example, `release/stubb-0.1.0-rc.1`) with the Cargo version, updated lockfile and any install
+1. Open a PR from a `release/` branch (for example, `release/stubb-0.1.1`) with the Cargo version, updated lockfile and any install
    examples that specify the previous version. Use versions such as
    `0.1.0-rc.1`, `0.1.0-rc.2`, `0.1.0`, and `0.1.1`.
 2. Add `docs/releases/<version>.md`. These files are Stubb's changelog. Describe
@@ -14,8 +14,8 @@
 
    ```sh
    git fetch origin main
-   git tag -a v0.1.0-rc.1 <tested-main-sha> -m 'Stubb 0.1.0-rc.1'
-   git push origin refs/tags/v0.1.0-rc.1
+   git tag -a v0.1.1 <tested-main-sha> -m 'Stubb 0.1.1'
+   git push origin refs/tags/v0.1.1
    ```
 
 4. Follow the Release workflow. It builds and tests the tagged code on Rust 1.99.0. It checks the tag, notes, and main CI result,
