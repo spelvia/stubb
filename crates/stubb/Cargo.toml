@@ -35,3 +35,39 @@ libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-std", "macros", "rt-multi-thread"] }
+
+[[example]]
+name = "approve"
+required-features = ["claude"]
+
+[[example]]
+name = "chat"
+required-features = ["claude", "codex", "pi"]
+
+[[example]]
+name = "models"
+required-features = ["claude", "codex", "pi"]
+
+[[example]]
+name = "observe"
+required-features = ["claude", "codex"]
+
+[[example]]
+name = "permissions"
+required-features = ["codex"]
+
+[[example]]
+name = "quickstart"
+required-features = ["claude"]
+
+[[example]]
+name = "sessions"
+required-features = ["claude", "codex", "pi"]
+
+[[example]]
+name = "usage"
+required-features = ["claude", "codex"]
+
+[[test]]
+name = "contract"
+required-features = ["claude", "codex", "pi"]

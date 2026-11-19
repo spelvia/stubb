@@ -39,6 +39,12 @@ jobs:
         run: cargo +stable fmt --all -- --check
       - name: Clippy
         run: cargo +stable clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Each provider on its own
+        run: |
+          cargo +stable clippy -p stubb --all-targets --locked --no-default-features -- -D warnings
+          for feature in claude codex pi acp; do
+            cargo +stable clippy -p stubb --all-targets --locked --no-default-features --features "$feature" -- -D warnings
+          done
       - name: Build all targets
         run: cargo +stable build --workspace --all-targets --all-features --locked
       - name: Unit and integration tests

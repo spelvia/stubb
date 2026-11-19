@@ -19,6 +19,13 @@
 //! [`send`](Session::send) messages. The `examples` directory has runnable
 //! programs for each step: `models`, `sessions`, and `chat`.
 
+// Shared helpers exist for the providers; with some compiled out, a few go
+// unused. The full build (every provider) still checks for dead code.
+#![cfg_attr(
+    not(all(feature = "claude", feature = "codex", feature = "pi", feature = "acp")),
+    allow(dead_code)
+)]
+
 mod core;
 pub mod providers;
 

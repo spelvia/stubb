@@ -890,7 +890,9 @@ async fn unsupported_settings_are_refused() {
     ));
     let permissions = provider
         .start_session(spec(session::Settings {
-            permissions: Some(crate::providers::codex::Permissions::default().into()),
+            permissions: Some(
+                serde_json::from_value(serde_json::json!({"provider": "codex"})).unwrap(),
+            ),
             ..Default::default()
         }))
         .await;
