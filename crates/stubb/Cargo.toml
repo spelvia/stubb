@@ -6,7 +6,9 @@ rust-version = "1.99.0"
 license = "MIT"
 repository = "https://github.com/spelvia/stubb"
 readme = "../../README.md"
-description = "Rust middleware for connecting applications to agent harnesses"
+description = "A Rust library for embedding coding agents (Codex, Claude Code, Pi, and ACP agents) in your application"
+keywords = ["agent", "codex", "claude", "acp", "llm"]
+categories = ["api-bindings", "development-tools"]
 
 [lib]
 path = "src/lib.rs"
