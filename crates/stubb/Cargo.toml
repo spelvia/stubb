@@ -10,12 +10,12 @@ description = "A Rust library for embedding coding agents (Codex, Claude Code, P
 keywords = ["agent", "codex", "claude", "acp", "llm"]
 categories = ["api-bindings", "development-tools"]
 
-[lib]
-path = "src/lib.rs"
-
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+path = "src/lib.rs"
 
 [features]
 default = ["claude", "codex", "pi", "acp"]

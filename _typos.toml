@@ -1,0 +1,16 @@
+# Spelling in code, comments and docs (typos), checked by the pre-commit hook
+# and CI.
+[files]
+extend-exclude = [
+	"Cargo.lock",
+	"*.svg",
+	# Third-party data and recorded native traffic, kept as they are.
+	"crates/stubb/src/providers/acp/registry/registry.json",
+	"crates/stubb/src/providers/*/fixtures/",
+	"THIRD_PARTY.md",
+]
+
+[default.extend-words]
+# "Hel" + "lo": text streamed in pieces, in tests.
+Hel = "Hel"
+hel = "hel"
