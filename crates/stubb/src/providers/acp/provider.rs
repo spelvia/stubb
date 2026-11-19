@@ -56,9 +56,9 @@ impl AcpConfig {
         }
     }
 
-    /// A configuration for a [registry](crate::registry) entry, started with
-    /// `launch` (see [`Entry::resolve`](crate::registry::Entry::resolve)).
-    pub fn from_entry(entry: &crate::registry::Entry, launch: Launch) -> Self {
+    /// A configuration for a [registry](super::registry) entry, started with
+    /// `launch` (see [`Entry::resolve`](super::registry::Entry::resolve)).
+    pub fn from_entry(entry: &super::registry::Entry, launch: Launch) -> Self {
         Self::new(&entry.id, &entry.name, launch)
     }
 }

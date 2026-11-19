@@ -1,22 +1,24 @@
-//! Updating an agent harness: how it was installed, whether Stubb can update
-//! it, and doing so with the harness's own updater.
+//! Updating a built-in agent: how it was installed, whether Stubb can update
+//! it, and doing so with the agent's own updater.
 //!
-//! Every harness Stubb drives updates itself (`claude update`, `codex update`,
+//! Every built-in agent updates itself (`claude update`, `codex update`,
 //! `pi update --self`), following the way it was installed (its native
-//! installer, npm, Homebrew). A harness installed by Nix is the system's to
+//! installer, npm, Homebrew). An agent installed by Nix is the system's to
 //! update, so Stubb only says how. Which version is newest comes from the
-//! harness's npm package, [`Package`]; Stubb does not fetch it, so hosts use
+//! agent's npm package, [`Package`]; Stubb does not fetch it, so hosts use
 //! their own HTTP client.
 //!
 //! ```no_run
 //! # async fn demo() {
-//! use stubb::probe::{Harness, probe};
-//! let report = probe(Harness::Codex, None).await;
-//! let plan = stubb::update::plan(&report);
+//! # #[cfg(feature = "codex")] {
+//! use stubb::discovery::{probe, update};
+//! let report = probe(stubb::providers::codex::CLI, None).await;
+//! let plan = update::plan(&report);
 //! if plan.can_update {
-//!     let outcome = stubb::update::update(&report).await;
+//!     let outcome = update::update(&report).await;
 //!     println!("{:?}", outcome);
 //! }
+//! # }
 //! # }
 //! ```
 
@@ -28,14 +30,15 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use crate::probe::{Harness, Report, probe};
+use super::cli::Cli;
+use super::probe::{Report, probe};
 
 /// How long an update may take: it downloads and installs.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// How much of an updater's output is kept, from its end.
 const OUTPUT_TAIL: usize = 4_000;
 
-/// Where a harness's releases are published: its npm package, and the
+/// Where a agent's releases are published: its npm package, and the
 /// dist-tag of the channel it follows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +57,7 @@ impl Package {
     }
 }
 
-/// How a harness was installed, told from where its executable really is.
+/// How an agent was installed, told from where its executable really is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[non_exhaustive]
@@ -68,16 +71,16 @@ pub enum InstallMethod {
     Homebrew,
     /// The Nix store: the system's configuration owns it.
     Nix,
-    /// Somewhere else; the harness's own updater is tried.
+    /// Somewhere else; the agent's own updater is tried.
     Unknown,
 }
 
-/// What updating a harness would do.
+/// What updating an agent would do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Plan {
-    pub harness: Harness,
+    pub cli: Cli,
     pub method: InstallMethod,
     pub package: Package,
     /// Whether [`update`] may run here.
@@ -94,7 +97,7 @@ pub struct Plan {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Outcome {
-    pub harness: Harness,
+    pub cli: Cli,
     pub before: Option<String>,
     /// The version after updating, probed again.
     pub after: Option<String>,
@@ -118,49 +121,31 @@ pub enum UpdateError {
     Timeout,
 }
 
-/// The npm package a harness is published as, and the channel it follows.
-pub fn package(harness: Harness) -> Package {
-    match harness {
-        Harness::Claude => Package {
-            npm: "@anthropic-ai/claude-code".to_owned(),
-            tag: claude_channel().unwrap_or_else(|| "latest".to_owned()),
-        },
-        Harness::Codex => Package {
-            npm: "@openai/codex".to_owned(),
-            tag: "latest".to_owned(),
-        },
-        Harness::Pi => Package {
-            npm: "@earendil-works/pi-coding-agent".to_owned(),
-            tag: "latest".to_owned(),
-        },
-    }
-}
-
 /// How `executable` (as probed) was installed.
-pub fn install_method(harness: Harness, executable: &Path) -> InstallMethod {
+pub fn install_method(cli: Cli, executable: &Path) -> InstallMethod {
     let real = std::fs::canonicalize(executable).unwrap_or_else(|_| executable.to_path_buf());
-    method_of(harness, &real)
+    method_of(cli, &real)
 }
 
-/// What updating the harness in `report` would do.
+/// What updating the agent in `report` would do.
 pub fn plan(report: &Report) -> Plan {
-    let harness = report.harness;
-    let package = package(harness);
-    let own = own_updater(harness);
+    let cli = report.cli;
+    let package = cli.package();
+    let own = own_updater(cli);
     let Some(path) = &report.path else {
         return Plan {
-            harness,
+            cli,
             method: InstallMethod::Unknown,
             package,
             can_update: false,
             command: own.join(" "),
-            reason: Some(format!("{} is not installed", harness.program())),
+            reason: Some(format!("{} is not installed", cli.program())),
         };
     };
-    let method = install_method(harness, path);
+    let method = install_method(cli, path);
     match method {
         InstallMethod::Nix => Plan {
-            harness,
+            cli,
             method,
             package,
             can_update: false,
@@ -169,7 +154,7 @@ pub fn plan(report: &Report) -> Plan {
             reason: Some("installed by Nix: the system's configuration updates it".to_owned()),
         },
         method => Plan {
-            harness,
+            cli,
             method,
             package,
             can_update: true,
@@ -179,12 +164,12 @@ pub fn plan(report: &Report) -> Plan {
     }
 }
 
-/// Updates the harness in `report` with its own updater, without input, then
+/// Updates the agent in `report` with its own updater, without input, then
 /// probes it again for the new version.
 pub async fn update(report: &Report) -> Result<Outcome, UpdateError> {
-    let harness = report.harness;
+    let cli = report.cli;
     let Some(path) = &report.path else {
-        return Err(UpdateError::NotInstalled(harness.program()));
+        return Err(UpdateError::NotInstalled(cli.program()));
     };
     let plan = plan(report);
     if !plan.can_update {
@@ -193,7 +178,7 @@ pub async fn update(report: &Report) -> Result<Outcome, UpdateError> {
                 .unwrap_or_else(|| "it cannot be updated here".to_owned()),
         ));
     }
-    let args = &own_updater(harness)[1..];
+    let args = cli.update_args;
     let mut command = Command::new(path);
     command
         .args(args)
@@ -241,9 +226,9 @@ pub async fn update(report: &Report) -> Result<Outcome, UpdateError> {
     let (status, out, err) = tokio::time::timeout(UPDATE_TIMEOUT, read)
         .await
         .map_err(|_| UpdateError::Timeout)?;
-    let after = probe(harness, Some(path)).await;
+    let after = probe(cli, Some(path)).await;
     Ok(Outcome {
-        harness,
+        cli,
         before: report.version.clone(),
         after: after.version,
         success: status.is_ok_and(|status| status.success()),
@@ -277,16 +262,14 @@ pub fn is_newer(latest: &str, installed: &str) -> bool {
     }
 }
 
-/// The harness's own updater, program first.
-fn own_updater(harness: Harness) -> Vec<&'static str> {
-    match harness {
-        Harness::Claude => vec!["claude", "update"],
-        Harness::Codex => vec!["codex", "update"],
-        Harness::Pi => vec!["pi", "update", "--self"],
-    }
+/// The agent's own updater, program first.
+fn own_updater(cli: Cli) -> Vec<&'static str> {
+    let mut command = vec![cli.program];
+    command.extend(cli.update_args);
+    command
 }
 
-fn method_of(harness: Harness, real: &Path) -> InstallMethod {
+fn method_of(cli: Cli, real: &Path) -> InstallMethod {
     let text = real.to_string_lossy();
     if text.starts_with("/nix/store/") {
         return InstallMethod::Nix;
@@ -294,7 +277,10 @@ fn method_of(harness: Harness, real: &Path) -> InstallMethod {
     if text.contains("/Cellar/") || text.contains("/homebrew/") || text.contains("/linuxbrew/") {
         return InstallMethod::Homebrew;
     }
-    if harness == Harness::Claude && text.contains("/claude/versions/") {
+    if cli
+        .native_install
+        .is_some_and(|marker| text.contains(marker))
+    {
         return InstallMethod::Native;
     }
     if let Some((prefix, _)) = text.split_once("/lib/node_modules/") {
@@ -310,20 +296,6 @@ fn method_of(harness: Harness, real: &Path) -> InstallMethod {
     InstallMethod::Unknown
 }
 
-/// Claude Code's update channel (`stable` or `latest`), from its settings.
-fn claude_channel() -> Option<String> {
-    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude")))?;
-    let text = std::fs::read_to_string(dir.join("settings.json")).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    value
-        .get("autoUpdatesChannel")?
-        .as_str()
-        .filter(|channel| matches!(*channel, "stable" | "latest"))
-        .map(str::to_owned)
-}
-
 fn tail(text: &str, keep: usize) -> String {
     let trimmed = text.trim();
     if trimmed.len() <= keep {
@@ -336,22 +308,23 @@ fn tail(text: &str, keep: usize) -> String {
     format!("…{}", &trimmed[start..])
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "claude", feature = "codex", feature = "pi"))]
 mod tests {
     use super::*;
+    use crate::providers::{claude, codex, pi};
 
     #[test]
     fn install_methods_are_told_from_the_real_path() {
         assert_eq!(
             method_of(
-                Harness::Claude,
+                claude::CLI,
                 Path::new("/home/me/.local/share/claude/versions/2.1.322")
             ),
             InstallMethod::Native
         );
         assert_eq!(
             method_of(
-                Harness::Codex,
+                codex::CLI,
                 Path::new(
                     "/home/me/.local/share/fnm/node-versions/v24/installation/lib/node_modules/@openai/codex/bin/codex.js"
                 )
@@ -362,20 +335,20 @@ mod tests {
         );
         assert_eq!(
             method_of(
-                Harness::Pi,
+                pi::CLI,
                 Path::new("/nix/store/abc-pi-coding-agent-1.5.2/bin/pi")
             ),
             InstallMethod::Nix
         );
         assert_eq!(
             method_of(
-                Harness::Codex,
+                codex::CLI,
                 Path::new("/opt/homebrew/Cellar/codex/0.1/bin/codex")
             ),
             InstallMethod::Homebrew
         );
         assert_eq!(
-            method_of(Harness::Codex, Path::new("/usr/local/bin/codex")),
+            method_of(codex::CLI, Path::new("/usr/local/bin/codex")),
             InstallMethod::Unknown
         );
     }
@@ -383,10 +356,10 @@ mod tests {
     #[test]
     fn nix_installs_are_left_to_the_system() {
         let report = Report {
-            harness: Harness::Pi,
+            cli: pi::CLI,
             path: Some(PathBuf::from("/nix/store/abc-pi-coding-agent-1.5.2/bin/pi")),
             version: Some("1.5.2".to_owned()),
-            auth: crate::probe::Auth::SignedOut,
+            auth: crate::discovery::Auth::SignedOut,
             detail: None,
         };
         let plan = plan(&report);
@@ -426,10 +399,10 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let report = Report {
-            harness: Harness::Codex,
+            cli: codex::CLI,
             path: Some(program.clone()),
             version: Some("0.1.0".to_owned()),
-            auth: crate::probe::Auth::SignedOut,
+            auth: crate::discovery::Auth::SignedOut,
             detail: None,
         };
         let outcome = update(&report).await.unwrap();
@@ -444,10 +417,10 @@ mod tests {
     #[tokio::test]
     async fn nothing_runs_for_an_agent_that_is_not_installed() {
         let report = Report {
-            harness: Harness::Claude,
+            cli: claude::CLI,
             path: None,
             version: None,
-            auth: crate::probe::Auth::Unknown,
+            auth: crate::discovery::Auth::Unknown,
             detail: None,
         };
         assert_eq!(

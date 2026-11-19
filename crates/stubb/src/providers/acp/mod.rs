@@ -3,7 +3,7 @@
 //! [ACP](https://agentclientprotocol.com) is an open protocol between
 //! editors and coding agents: JSON-RPC over the agent's standard input and
 //! output. Many agents speak it, natively or through an adapter; the
-//! [`registry`](crate::registry) lists them and how to start them. One
+//! [`registry`] lists them and how to start them. One
 //! [`AcpProvider`] drives one such agent, given a command that starts it
 //! (a [`Launch`]).
 //!
@@ -59,5 +59,8 @@ mod protocol;
 mod provider;
 use protocol::connection;
 
-pub use crate::core::discovery::launch::Launch;
+mod launch;
+pub mod registry;
+
+pub use launch::Launch;
 pub use provider::{AcpConfig, AcpProvider};

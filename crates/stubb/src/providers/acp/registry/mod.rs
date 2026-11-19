@@ -11,7 +11,7 @@
 //! copy that ships with Stubb, for hosts that are offline.
 //!
 //! ```
-//! use stubb::registry::{Method, Registry};
+//! use stubb::providers::acp::registry::{Method, Registry};
 //!
 //! let registry = Registry::bundled();
 //! let gemini = registry.get("gemini").expect("bundled");
@@ -22,6 +22,7 @@
 //! Registry data comes from outside: Stubb refuses binary commands that
 //! would leave the install folder.
 
+use crate::discovery::profile::{Logo, LogoSource, Profile};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
@@ -416,9 +417,41 @@ fn sanitize(text: &str) -> String {
     }
 }
 
+impl Entry {
+    /// The registry agent's profile. The registry's logos are drawn in
+    /// `currentColor`, so they are monochrome.
+    pub fn profile(&self) -> Profile {
+        Profile {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            maker: (!self.authors.is_empty()).then(|| self.authors.join(", ")),
+            description: self.description.clone(),
+            homepage: self.website.clone(),
+            repository: self.repository.clone(),
+            logo: Logo {
+                source: match &self.icon {
+                    Some(url) => LogoSource::Url(url.clone()),
+                    None => LogoSource::Svg(String::new()),
+                },
+                monochrome: true,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_agents_name_their_logo() {
+        let gemini = Registry::bundled()
+            .get("gemini")
+            .expect("gemini is in the bundled registry")
+            .profile();
+        assert_eq!(gemini.name, "Gemini CLI");
+        assert!(gemini.logo.monochrome);
+    }
 
     const SAMPLE: &str = r#"{
       "version": "1.0.0",

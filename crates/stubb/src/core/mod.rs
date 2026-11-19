@@ -2,7 +2,7 @@
 
 pub mod catalog;
 pub mod control;
-pub(crate) mod discovery;
+pub mod discovery;
 pub(crate) mod error;
 pub(crate) mod observation;
 pub mod permission;

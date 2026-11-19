@@ -1,6 +1,6 @@
 //! Whether an ACP agent is usable, without creating a session.
 //!
-//! [`probe`] looks for the agent's program like [`crate::probe`] does, on
+//! [`probe`] looks for the agent's program like [`crate::discovery::probe`] does, on
 //! `PATH` and then through the login shell. Given a deadline, it also starts
 //! the agent and completes `initialize` to read the agent's name, version,
 //! sign-in methods and capabilities. It never creates a session or sends a

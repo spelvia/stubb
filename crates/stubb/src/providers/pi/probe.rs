@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::core::discovery::status::run;
-use crate::probe::Auth;
+use crate::discovery::Auth;
 
 pub(crate) async fn auth(path: &Path) -> (Auth, Option<String>) {
     let Some(provider) = pi_default_provider() else {

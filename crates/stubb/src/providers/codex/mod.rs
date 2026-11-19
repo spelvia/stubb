@@ -22,6 +22,9 @@ pub use permissions::{
 mod transport_tests;
 mod usage;
 pub(crate) use provider::PROVIDER_ID;
+
+mod cli;
+pub use cli::CLI;
 mod driver;
 mod provider;
 mod transport;

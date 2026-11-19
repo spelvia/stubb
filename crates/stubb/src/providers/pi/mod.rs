@@ -17,6 +17,9 @@ pub(crate) mod probe;
 mod process;
 mod tools;
 pub(crate) use provider::PROVIDER_ID;
+
+mod cli;
+pub use cli::CLI;
 mod driver;
 mod provider;
 mod transcripts;

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::core::discovery::status::run;
-use crate::probe::Auth;
+use crate::discovery::Auth;
 
 pub(crate) async fn auth(path: &Path) -> (Auth, Option<String>) {
     match run(path, &["auth", "status"]).await {

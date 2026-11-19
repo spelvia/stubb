@@ -23,7 +23,7 @@ mod core;
 pub mod providers;
 
 pub use core::catalog::Catalog;
-pub use core::discovery::{probe, profile, registry, update};
+pub use core::discovery;
 pub use core::error::{Error, Result};
 pub use core::observation::{agent, records as observation, task};
 pub use core::provider::{BoxFuture, Provider};

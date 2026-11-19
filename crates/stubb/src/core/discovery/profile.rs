@@ -1,27 +1,20 @@
 //! Who an agent is, for hosts to show: its name, maker, description, links
-//! and logo, the same way for Stubb's own harnesses and for ACP registry
-//! agents.
+//! and logo, the same way for built-in agents and for ACP registry agents.
 //!
-//! Stubb ships the logos of its own harnesses (Claude Code shows Claude's
-//! mark, Codex OpenAI's, Pi its own). Registry agents name a logo by URL;
-//! Stubb does not fetch it, so a host fetches it and passes it through
-//! [`clean_svg`] before serving it.
+//! Built-in agents ship their logos (Claude Code shows Claude's mark, Codex
+//! OpenAI's, Pi its own) through [`Cli::profile`](crate::discovery::Cli::profile).
+//! Registry agents name a logo by URL; Stubb does not fetch it, so a host
+//! fetches it and passes it through [`clean_svg`] before serving it.
 //!
 //! ```
-//! use stubb::probe::Harness;
-//! let claude = stubb::profile::of(Harness::Claude);
+//! # #[cfg(feature = "claude")] {
+//! let claude = stubb::providers::claude::CLI.profile();
 //! assert_eq!(claude.name, "Claude Code");
-//! assert!(matches!(claude.logo.source, stubb::profile::LogoSource::Svg(_)));
+//! assert!(matches!(claude.logo.source, stubb::discovery::profile::LogoSource::Svg(_)));
+//! # }
 //! ```
 
 use serde::{Deserialize, Serialize};
-
-use crate::probe::Harness;
-use crate::registry::Entry;
-
-const CLAUDE: &str = include_str!("claude.svg");
-const OPENAI: &str = include_str!("openai.svg");
-const PI: &str = include_str!("pi.svg");
 
 /// An agent as a host presents it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,70 +54,6 @@ pub enum LogoSource {
     Svg(String),
     /// A URL the host fetches (then cleans with [`clean_svg`]).
     Url(String),
-}
-
-/// The profile of one of Stubb's own harnesses.
-pub fn of(harness: Harness) -> Profile {
-    match harness {
-        Harness::Claude => Profile {
-            id: harness.id().to_owned(),
-            name: "Claude Code".to_owned(),
-            maker: Some("Anthropic".to_owned()),
-            description: "Anthropic's agentic coding tool, in the terminal.".to_owned(),
-            homepage: Some("https://claude.com/product/claude-code".to_owned()),
-            repository: Some("https://github.com/anthropics/claude-code".to_owned()),
-            logo: Logo {
-                source: LogoSource::Svg(CLAUDE.to_owned()),
-                monochrome: false,
-            },
-        },
-        Harness::Codex => Profile {
-            id: harness.id().to_owned(),
-            name: "Codex".to_owned(),
-            maker: Some("OpenAI".to_owned()),
-            description: "OpenAI's coding agent, in the terminal.".to_owned(),
-            homepage: Some("https://openai.com/codex".to_owned()),
-            repository: Some("https://github.com/openai/codex".to_owned()),
-            logo: Logo {
-                source: LogoSource::Svg(OPENAI.to_owned()),
-                monochrome: true,
-            },
-        },
-        Harness::Pi => Profile {
-            id: harness.id().to_owned(),
-            name: "Pi".to_owned(),
-            maker: Some("Earendil".to_owned()),
-            description: "A minimal, extensible coding agent.".to_owned(),
-            homepage: None,
-            repository: Some("https://github.com/earendil-works/pi".to_owned()),
-            logo: Logo {
-                source: LogoSource::Svg(PI.to_owned()),
-                monochrome: false,
-            },
-        },
-    }
-}
-
-impl Entry {
-    /// The registry agent's profile. The registry's logos are drawn in
-    /// `currentColor`, so they are monochrome.
-    pub fn profile(&self) -> Profile {
-        Profile {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            maker: (!self.authors.is_empty()).then(|| self.authors.join(", ")),
-            description: self.description.clone(),
-            homepage: self.website.clone(),
-            repository: self.repository.clone(),
-            logo: Logo {
-                source: match &self.icon {
-                    Some(url) => LogoSource::Url(url.clone()),
-                    None => LogoSource::Svg(String::new()),
-                },
-                monochrome: true,
-            },
-        }
-    }
 }
 
 /// The largest logo Stubb accepts, in bytes.
@@ -200,26 +129,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn own_harnesses_ship_their_logos() {
-        for &harness in Harness::ALL {
-            let profile = of(harness);
+    fn built_in_agents_ship_clean_logos() {
+        for cli in crate::discovery::clis() {
+            let profile = cli.profile();
+            assert_eq!(profile.id, cli.id());
             let LogoSource::Svg(svg) = &profile.logo.source else {
-                panic!("{harness:?} has no logo");
+                panic!("{cli:?} has no logo");
             };
-            assert!(clean_svg(svg).is_some(), "{harness:?}'s logo is not clean");
+            assert!(clean_svg(svg).is_some(), "{cli:?}'s logo is not clean");
         }
-        assert!(of(Harness::Codex).logo.monochrome);
-        assert!(!of(Harness::Claude).logo.monochrome);
-    }
-
-    #[test]
-    fn registry_agents_name_their_logo() {
-        let gemini = crate::registry::Registry::bundled()
-            .get("gemini")
-            .expect("gemini is in the bundled registry")
-            .profile();
-        assert_eq!(gemini.name, "Gemini CLI");
-        assert!(gemini.logo.monochrome);
     }
 
     #[test]
