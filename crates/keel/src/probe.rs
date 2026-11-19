@@ -344,33 +344,66 @@ fn search_path(program: &Path, path: Option<OsString>) -> Option<PathBuf> {
 }
 
 async fn login_shell_lookup(program: &Path) -> Option<PathBuf> {
+    let path = login_shell_path().await?;
+    search_path(program, Some(path)).map(stable)
+}
+
+/// How long the login shell's `PATH` is reused: long enough that probing
+/// several agents starts one shell, short enough that a newly installed
+/// version manager is picked up without a restart.
+const LOGIN_PATH_FRESH: Duration = Duration::from_secs(300);
+
+/// How long a login shell may take. Interactive shell startup files can be
+/// slow, and slower still on a busy machine.
+const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The `PATH` the user's interactive login shell sets up, where version
+/// managers (nvm, fnm, asdf, mise) and `~/.local/bin` usually come from.
+/// Asked once and shared by every concurrent lookup; a failure is not
+/// remembered, so the next lookup asks again.
+async fn login_shell_path() -> Option<OsString> {
+    static CACHED: tokio::sync::Mutex<Option<(std::time::Instant, OsString)>> =
+        tokio::sync::Mutex::const_new(None);
     if cfg!(windows) {
         return None;
     }
-    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
-    let name = program.to_str()?;
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    let mut cached = CACHED.lock().await;
+    if let Some((at, path)) = cached.as_ref()
+        && at.elapsed() < LOGIN_PATH_FRESH
     {
-        return None;
+        return Some(path.clone());
     }
+    let path = ask_login_shell().await?;
+    *cached = Some((std::time::Instant::now(), path.clone()));
+    Some(path)
+}
+
+/// Marks the line with the answer, since startup files may print too.
+const PATH_MARKER: &str = "__keel_path__=";
+
+async fn ask_login_shell() -> Option<OsString> {
+    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
     let mut command = Command::new(shell);
     command
-        .args(["-lic", &format!("command -v {name}")])
+        .args(["-lic", &format!("printf '\\n{PATH_MARKER}%s\\n' \"$PATH\"")])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let out = tokio::time::timeout(Duration::from_secs(10), command.output())
+    let out = tokio::time::timeout(LOGIN_SHELL_TIMEOUT, command.output())
         .await
         .ok()?
         .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let found = stable(PathBuf::from(
-        text.lines().rev().find(|l| l.starts_with('/'))?.trim(),
-    ));
-    is_executable(&found).then_some(found)
+    parse_login_path(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_login_path(output: &str) -> Option<OsString> {
+    output
+        .lines()
+        .rev()
+        .find_map(|line| line.trim_end().strip_prefix(PATH_MARKER))
+        .filter(|path| !path.is_empty())
+        .map(OsString::from)
 }
 
 /// Resolves the folder (not the file) to its real location: version managers
@@ -406,6 +439,17 @@ fn home() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_login_path_is_read_past_what_startup_files_print() {
+        let output = "Welcome back!\n/not/this\n\n__keel_path__=/home/me/.local/bin:/usr/bin\n";
+        assert_eq!(
+            parse_login_path(output),
+            Some(OsString::from("/home/me/.local/bin:/usr/bin"))
+        );
+        assert_eq!(parse_login_path("no marker\n"), None);
+        assert_eq!(parse_login_path("__keel_path__=\n"), None);
+    }
 
     #[test]
     fn versions_are_read_from_each_harness() {
