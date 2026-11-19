@@ -1,27 +1,27 @@
-# Keel
+# Stubb
 
 ## Overview
 
-Keel is a Rust library for embedding coding agents in your application. It connects
+Stubb is a Rust library for embedding coding agents in your application. It connects
 to Codex, Claude Code, and Pi through their native protocols, and to any agent that
 speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), and
 exposes a shared asynchronous API for sessions, streaming, interactive requests,
 and agent controls.
 
-Use Keel to build chat interfaces, development tools, or agent dashboards.
-Keel manages transport and session state; your application handles presentation
+Use Stubb to build chat interfaces, development tools, or agent dashboards.
+Stubb manages transport and session state; your application handles presentation
 and user decisions.
 
 ## Installation
 
-Requires **Rust 1.99.0 or newer**. Add Keel to your Rust project:
+Requires **Rust 1.99.0 or newer**. Add Stubb to your Rust project:
 
 ```sh
-cargo add keel@0.1.0-rc.1
+cargo add stubb@0.1.0-rc.1
 ```
 
 Install and authenticate the CLI for each provider you want to use. For Pi,
-configure credentials for its model providers. Keel uses these local executables
+configure credentials for its model providers. Stubb uses these local executables
 and their native configuration.
 
 ## Features
@@ -55,23 +55,23 @@ remains unknown.
 | Pi | `pi` | RPC |
 | Any ACP agent | Configured per agent (for example `npx -y @google/gemini-cli --acp`) | ACP v1 (JSON-RPC over stdio) |
 
-ACP agents are configured at run time with `keel::acp::AcpProvider`. The
-`keel::registry` module parses the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+ACP agents are configured at run time with `stubb::acp::AcpProvider`. The
+`stubb::registry` module parses the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 (a copy is bundled for offline use) and turns an entry into the command that starts
-it, through `npx`, `uvx`, or a binary the host has downloaded. Keel performs no
-downloads itself. `keel::acp::probe` reports whether an agent is installed and,
+it, through `npx`, `uvx`, or a binary the host has downloaded. Stubb performs no
+downloads itself. `stubb::acp::probe` reports whether an agent is installed and,
 optionally, its name, version and sign-in methods from `initialize`.
 
 Codex and Claude expose different permission, sandbox, and planning controls.
 Pi supports extension dialogs, steering, and follow-up queues, but has no built-in
 permission system, sandbox, or plan mode. ACP agents report their models, efforts
 and modes per session, ask for permissions through ACP, and read or write files
-only within the session's folder; Keel offers them no terminals. Keel preserves
+only within the session's folder; Stubb offers them no terminals. Stubb preserves
 these native differences.
 
 ## Documentation and examples
 
-See the [0.1.0-rc.1 API documentation](https://docs.rs/keel/0.1.0-rc.1/keel/) for provider
+See the [0.1.0-rc.1 API documentation](https://docs.rs/stubb/0.1.0-rc.1/stubb/) for provider
 setup, session operations, event handling, and capability details.
 
 Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md),
@@ -83,12 +83,12 @@ Runnable examples are included in the repository:
 
 | Example | Purpose |
 | --- | --- |
-| [usage](crates/keel/examples/usage.rs) | Read Codex or Claude Code account quotas without a model turn |
-| [models](crates/keel/examples/models.rs) | Discover models and settings |
-| [sessions](crates/keel/examples/sessions.rs) | List sessions and read history |
-| [chat](crates/keel/examples/chat.rs) | Start or resume a session and stream replies |
-| [observe](crates/keel/examples/observe.rs) | Inspect stored agents, tasks, and logs |
-| [approve](crates/keel/examples/approve.rs) | Answer an agent's permission requests from the terminal |
+| [usage](crates/stubb/examples/usage.rs) | Read Codex or Claude Code account quotas without a model turn |
+| [models](crates/stubb/examples/models.rs) | Discover models and settings |
+| [sessions](crates/stubb/examples/sessions.rs) | List sessions and read history |
+| [chat](crates/stubb/examples/chat.rs) | Start or resume a session and stream replies |
+| [observe](crates/stubb/examples/observe.rs) | Inspect stored agents, tasks, and logs |
+| [approve](crates/stubb/examples/approve.rs) | Answer an agent's permission requests from the terminal |
 
 From a repository checkout:
 
@@ -96,6 +96,10 @@ From a repository checkout:
 cargo run --example models -- claude
 cargo run --example chat -- codex --prompt "Explain this repository"
 ```
+
+## Releases
+
+See the [release process and version notes](docs/releases/README.md).
 
 ## Development
 
@@ -105,7 +109,7 @@ RUSTFMT="$(rustup which rustfmt)" "$(rustup which cargo-fmt)" fmt --all -- --che
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-cargo semver-checks -p keel --baseline-rev <latest release tag>
+cargo semver-checks -p stubb --baseline-rev <latest release tag>
 ```
 
 The hooks run the formatting and Clippy checks before each commit.

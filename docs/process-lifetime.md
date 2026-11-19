@@ -1,6 +1,6 @@
 # Agent process lifetime
 
-Keel starts native agent processes (the shared `codex app-server`, a Claude
+Stubb starts native agent processes (the shared `codex app-server`, a Claude
 Code process per session and a Pi process per session) and makes sure none
 outlives the host:
 

@@ -3,8 +3,8 @@
 Pass `session::Settings::permissions` when starting or resuming a session:
 
 ```rust
-use keel::codex::{ApprovalPolicy, Permissions, Sandbox};
-use keel::{permission, session};
+use stubb::codex::{ApprovalPolicy, Permissions, Sandbox};
+use stubb::{permission, session};
 
 let settings = session::Settings {
     permissions: Some(permission::Configuration::Codex(Permissions {
@@ -25,7 +25,7 @@ configuration without sending a prompt. The same settings type is accepted by
 Approval policies are `Untrusted`, `OnRequest`, `Never`, or `Granular`. Granular
 policies preserve Codex's individual prompt categories. These settings control
 when native requests are raised; answering requests belongs to the interactive
-request API. Keel currently declines those requests.
+request API. Stubb currently declines those requests.
 
 Sandbox selections are `ReadOnly`, `WorkspaceWrite`, and `DangerFullAccess`.
 Workspace write can specify additional absolute writable roots, network access,
@@ -35,7 +35,7 @@ are independent: `Never` does not disable the sandbox.
 
 A named native permission `profile` can be selected instead of `sandbox`.
 Selecting both is invalid. Profiles must already exist in Codex configuration;
-Keel does not create them. Native admin policy can reject configuration.
+Stubb does not create them. Native admin policy can reject configuration.
 
 ## Defaults and reporting
 

@@ -3,4 +3,4 @@ set -eu
 
 repo_root=$(git rev-parse --show-toplevel)
 git -C "$repo_root" config --local core.hooksPath .githooks
-printf 'Installed Keel Git hooks for %s\n' "$repo_root"
+printf 'Installed Stubb Git hooks for %s\n' "$repo_root"

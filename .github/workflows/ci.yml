@@ -97,7 +97,7 @@ jobs:
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Package and verify crate
-        run: cargo package -p keel --locked
+        run: cargo package -p stubb --locked
 
   semver:
     name: Semver checks
@@ -125,7 +125,7 @@ jobs:
             exit 0
           fi
           echo "Baseline: $baseline"
-          cargo semver-checks -p keel --baseline-rev "$baseline"
+          cargo semver-checks -p stubb --baseline-rev "$baseline"
 
   dependencies:
     name: Dependencies

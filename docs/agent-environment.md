@@ -1,11 +1,11 @@
 # Agent process environment
 
-Keel starts native agent processes (the shared `codex app-server`, a Claude
+Stubb starts native agent processes (the shared `codex app-server`, a Claude
 Code process per session, a Pi process per session, and the short-lived
 processes that read catalogs, versions and account usage). Each provider's
 configuration says which environment those processes start with:
 `CodexConfig::environment`, `ClaudeConfig::environment` and
-`PiConfig::environment`, all a `keel::process::Environment`.
+`PiConfig::environment`, all a `stubb::process::Environment`.
 
 - **`Environment::inherit()`**, the default, passes the host's whole
   environment, as before this option existed.
@@ -15,16 +15,16 @@ configuration says which environment those processes start with:
   case; a named variable the host does not have is left out.
 - **`.set(name, value)`** adds a variable or replaces a passed or inherited
   one, with either starting point.
-- **Keel's own variables come last.** `ClaudeConfig::config_dir` and
+- **Stubb's own variables come last.** `ClaudeConfig::config_dir` and
   `PiConfig::agent_dir`, when set, are still passed as `CLAUDE_CONFIG_DIR`
-  and `PI_CODING_AGENT_DIR`. When they are not set, Keel finds stored
+  and `PI_CODING_AGENT_DIR`. When they are not set, Stubb finds stored
   sessions where the process will look, with the environment it gets: for
   example `CLAUDE_CONFIG_DIR` only if it is passed or set, else
   `$HOME/.claude`.
 
 ```rust
-use keel::codex::{Codex, CodexConfig};
-use keel::process::Environment;
+use stubb::codex::{Codex, CodexConfig};
+use stubb::process::Environment;
 
 let codex = Codex::new(CodexConfig {
     environment: Environment::only(["PATH", "HOME", "USER", "LANG", "LC_*", "CODEX_HOME", "OPENAI_*"])

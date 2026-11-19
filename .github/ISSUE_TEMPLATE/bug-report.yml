@@ -1,5 +1,5 @@
 name: Bug report
-description: Report unexpected behavior in Keel.
+description: Report unexpected behavior in Stubb.
 labels: [bug, needs-triage]
 body:
   - type: textarea
@@ -25,4 +25,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include the Keel version or commit, provider and CLI version, operating system, and Rust version where relevant.
+      description: Include the Stubb version or commit, provider and CLI version, operating system, and Rust version where relevant.
