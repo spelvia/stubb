@@ -34,6 +34,13 @@ jobs:
           runs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" -f branch=main -f event=push -f head_sha="$sha" -F per_page=1)
           jq -e '.workflow_runs[0].conclusion == "success"' <<< "$runs"
 
+      - name: Verify minimum supported Rust
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          cargo +1.99.0 build --workspace --all-features --all-targets --locked
+          cargo +1.99.0 test --workspace --all-features --all-targets --locked
+          cargo +1.99.0 test --workspace --all-features --doc --locked
+
   publish:
     needs: verify
     runs-on: ubuntu-24.04

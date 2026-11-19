@@ -18,7 +18,7 @@ Stubb follows [Semantic Versioning](https://semver.org) as Cargo applies it:
 - The minimum supported Rust version (`rust-version`) is raised only in a
   minor (before 1.0) or major release.
 
-CI runs [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
+On release PRs, CI runs [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
 against the latest release tag; it starts with the first release. To run it
 locally against a tag or commit:
 

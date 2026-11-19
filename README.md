@@ -118,8 +118,8 @@ The hooks run the formatting and Clippy checks before each commit.
 release; it has a baseline from the first tagged release on. Changes follow
 the [compatibility rules](docs/compatibility.md).
 
-[CI](.github/workflows/ci.yml) checks lint, builds/tests, documentation, packaging,
-semver compatibility with the latest release, and dependencies. [Dependency scans](.github/workflows/dependencies.yml) and
+[CI](.github/workflows/ci.yml) runs lint, builds, tests, and documentation on stable Rust alongside dependency checks.
+Release PRs also verify the package contents and compare the API with the previous release. [Dependency scans](.github/workflows/dependencies.yml) and
 [Dependabot updates](.github/dependabot.yml) also run weekly.
 
 Real-provider tests are opt-in: `cargo test --test contract -- --ignored --nocapture`.
