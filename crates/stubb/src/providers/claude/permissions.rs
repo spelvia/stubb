@@ -39,6 +39,16 @@ pub struct Permissions {
     pub mode: Option<PermissionMode>,
 }
 
+impl crate::permission::Native for Permissions {
+    const PROVIDER: &'static str = super::PROVIDER_ID;
+}
+
+impl From<Permissions> for crate::permission::Configuration {
+    fn from(permissions: Permissions) -> Self {
+        Self::new(&permissions)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

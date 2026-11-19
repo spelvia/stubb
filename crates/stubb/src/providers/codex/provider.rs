@@ -355,13 +355,16 @@ impl Codex {
     ) -> Result<ThreadSettingsParams> {
         let permissions = match &settings.permissions {
             None => None,
-            Some(crate::permission::Configuration::Codex(permissions)) => Some(permissions),
+            Some(configuration) if configuration.is::<Permissions>() => {
+                configuration.get::<Permissions>()?
+            }
             Some(_) => {
                 return Err(Error::Unsupported {
                     operation: "permission_configuration",
                 });
             }
         };
+        let permissions = permissions.as_ref();
         if let Some(permissions) = permissions {
             permissions.validate()?;
         }
@@ -474,8 +477,8 @@ impl Codex {
             cwd: response.cwd,
             permissions: Some(crate::permission::Info {
                 requested: requested_permissions,
-                effective: crate::permission::EffectiveConfiguration::Codex(
-                    EffectivePermissions::from_native(
+                effective: crate::permission::Configuration::new(
+                    &EffectivePermissions::from_native(
                         &response.approval_policy,
                         &response.sandbox,
                         &response.active_permission_profile,
@@ -827,16 +830,19 @@ mod tests {
         let settings = session::Settings {
             effort: Some("low".into()),
             fast_mode: Some(false),
-            permissions: Some(crate::permission::Configuration::Codex(Permissions {
-                approval_policy: Some(ApprovalPolicy::OnRequest),
-                sandbox: Some(Sandbox::WorkspaceWrite {
-                    writable_roots: Some(vec!["/extra".into()]),
-                    network_access: Some(false),
-                    exclude_tmpdir_env_var: Some(true),
-                    exclude_slash_tmp: Some(true),
-                }),
-                profile: None,
-            })),
+            permissions: Some(
+                Permissions {
+                    approval_policy: Some(ApprovalPolicy::OnRequest),
+                    sandbox: Some(Sandbox::WorkspaceWrite {
+                        writable_roots: Some(vec!["/extra".into()]),
+                        network_access: Some(false),
+                        exclude_tmpdir_env_var: Some(true),
+                        exclude_slash_tmp: Some(true),
+                    }),
+                    profile: None,
+                }
+                .into(),
+            ),
             ..Default::default()
         };
         for new_thread in [true, false] {
@@ -898,11 +904,14 @@ mod tests {
         });
         let settings = session::Settings {
             model: Some("not-in-catalog".into()),
-            permissions: Some(crate::permission::Configuration::Codex(Permissions {
-                profile: Some("named".into()),
-                sandbox: Some(Sandbox::ReadOnly),
-                ..Default::default()
-            })),
+            permissions: Some(
+                Permissions {
+                    profile: Some("named".into()),
+                    sandbox: Some(Sandbox::ReadOnly),
+                    ..Default::default()
+                }
+                .into(),
+            ),
             ..Default::default()
         };
         assert!(matches!(
@@ -931,10 +940,13 @@ mod tests {
     async fn named_profiles_are_forwarded_without_a_sandbox_override() {
         let provider = Codex::new(CodexConfig::default());
         let settings = session::Settings {
-            permissions: Some(crate::permission::Configuration::Codex(Permissions {
-                profile: Some("named".into()),
-                ..Default::default()
-            })),
+            permissions: Some(
+                Permissions {
+                    profile: Some("named".into()),
+                    ..Default::default()
+                }
+                .into(),
+            ),
             ..Default::default()
         };
         let value = serde_json::to_value(provider.settings_params(&settings, false).await.unwrap())

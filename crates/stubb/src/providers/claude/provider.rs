@@ -1,5 +1,5 @@
 use super::driver::ClaudeSession;
-use super::{PermissionMode, fork, history, process, store, stored_tasks, usage};
+use super::{PermissionMode, Permissions, fork, history, process, store, stored_tasks, usage};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -425,10 +425,9 @@ impl Claude {
     /// not listed are passed through, since Claude accepts full model ids;
     /// their effort is then not checked.
     async fn validate(&self, settings: &session::Settings) -> Result<()> {
-        if matches!(
-            settings.permissions,
-            Some(crate::permission::Configuration::Codex(_))
-        ) {
+        if let Some(configuration) = &settings.permissions
+            && configuration.get::<Permissions>()?.is_none()
+        {
             return Err(Error::Unsupported {
                 operation: "permission_configuration",
             });
@@ -525,10 +524,8 @@ fn catalog_model(model: &Value, fast_note: &Option<String>) -> catalog::Model {
 
 /// The permission mode requested in `settings`, if any.
 fn permission_mode(settings: &session::Settings) -> Option<PermissionMode> {
-    match &settings.permissions {
-        Some(crate::permission::Configuration::Claude(permissions)) => permissions.mode,
-        _ => None,
-    }
+    let configuration = settings.permissions.as_ref()?;
+    configuration.get::<Permissions>().ok().flatten()?.mode
 }
 
 impl Provider for Claude {

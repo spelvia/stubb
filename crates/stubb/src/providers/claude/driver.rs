@@ -19,7 +19,7 @@ impl session::Driver for ClaudeSession {
         configuration: crate::permission::Configuration,
     ) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
-            let crate::permission::Configuration::Claude(permissions) = configuration else {
+            let Some(permissions) = configuration.get::<super::Permissions>()? else {
                 return Err(Error::Unsupported {
                     operation: "permission_configuration",
                 });
