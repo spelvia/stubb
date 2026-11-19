@@ -64,8 +64,7 @@ which agents and CLI versions you tested.
 - Keep each pull request focused on one change, and link the issue it addresses.
 - Add or update tests for behavior changes.
 - Update the rustdoc, README, or [guides](docs) when you change public behavior.
-- Follow the [compatibility rules](docs/compatibility.md). Breaking changes to
-  the public API or stored event JSON wait for the next minor version before 1.0.
+- Follow the [versioning rules](#versioning).
 
 ### Commit messages
 
@@ -79,6 +78,25 @@ feat(api)!: replace the session constructor
 
 Use `!` for breaking changes. Pull request titles follow the same format,
 because a squash merge uses the title as the commit subject on `main`.
+
+## Versioning
+
+Stubb follows [Semantic Versioning](https://semver.org) as Cargo applies it.
+Before 1.0, the minor version is the breaking one: `0.1.x` releases only add,
+and breaking changes wait for `0.2.0`. Release candidates may still change
+before their release.
+
+- Enums that may gain variants, and structs Stubb builds for applications, are
+  `#[non_exhaustive]`. Adding a variant or field to them is not breaking.
+- Stored event JSON is versioned by `session::EVENT_FORMAT`. Within one format,
+  changes only add; removing, renaming or retyping anything bumps the format
+  together with a breaking release.
+- A public item is deprecated for at least one release before it is removed.
+- The minimum supported Rust version is raised only in a breaking release.
+
+On release PRs, CI runs
+[`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
+against the previous release tag.
 
 ## Releases
 

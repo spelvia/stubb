@@ -11,4 +11,4 @@
 - [ ] The title follows Conventional Commits (`feat:`, `fix(acp):`, `feat!:` …)
 - [ ] Tests cover the change
 - [ ] Rustdoc, README, or guides are updated for public behavior changes
-- [ ] Breaking changes follow the [compatibility rules](https://github.com/spelvia/stubb/blob/main/docs/compatibility.md)
+- [ ] Breaking changes follow the [versioning rules](https://github.com/spelvia/stubb/blob/main/CONTRIBUTING.md#versioning)

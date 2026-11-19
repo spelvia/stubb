@@ -131,10 +131,6 @@ unsupported returns an explicit error.
 
 - **[API reference on docs.rs](https://docs.rs/stubb)**: every type, provider,
   and capability.
-- **Guides**: [agent process lifetime](docs/process-lifetime.md),
-  [agent process environment](docs/agent-environment.md), and
-  [compatibility and versioning](docs/compatibility.md), including how to store
-  event JSON across versions.
 - **[Changelog](https://github.com/spelvia/stubb/releases)**: notes for every release.
 
 ### Examples
