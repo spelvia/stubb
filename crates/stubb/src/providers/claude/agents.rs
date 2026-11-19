@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::{Claude, history, store};
 use crate::core::runtime::files;
-use crate::{Error, Result, agent, turn};
+use crate::{Error, Result, observation::agent, turn};
 
 pub(super) struct Stored {
     pub(super) root: String,

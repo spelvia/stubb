@@ -83,7 +83,7 @@ impl Attachment {
 
     pub(super) fn begin_stop(
         &self,
-        target: crate::control::Target,
+        target: crate::observation::control::Target,
     ) -> crate::Result<controls::Request> {
         self.state
             .lock()
@@ -94,7 +94,7 @@ impl Attachment {
         &self,
         id: &str,
         result: &crate::Result<()>,
-    ) -> crate::control::Receipt {
+    ) -> crate::observation::control::Receipt {
         self.state
             .lock()
             .expect("observation lock")
@@ -106,7 +106,7 @@ impl Attachment {
             .expect("observation lock")
             .stop_is_current(id)
     }
-    pub(super) fn stop_receipt(&self, id: &str) -> crate::control::Receipt {
+    pub(super) fn stop_receipt(&self, id: &str) -> crate::observation::control::Receipt {
         self.state
             .lock()
             .expect("observation lock")
@@ -123,7 +123,7 @@ impl Attachment {
     pub(super) fn output_availability(
         &self,
         id: &str,
-        availability: crate::task::OutputAvailability,
+        availability: crate::observation::task::OutputAvailability,
     ) {
         self.state
             .lock()

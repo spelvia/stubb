@@ -111,7 +111,10 @@ fn native_sidechains_keep_membership_nested_ownership_and_continuation_ids() {
     assert!(stored.descendant("grand", "root"));
     assert!(!stored.descendant("root", "grand"));
     let tasks = super::super::stored_tasks::read(&stored).unwrap();
-    assert_eq!(tasks["child"].summary.status, crate::task::Status::Stopped);
+    assert_eq!(
+        tasks["child"].summary.status,
+        crate::observation::task::Status::Stopped
+    );
     assert_eq!(tasks["child"].tool.as_deref(), Some("resume"));
 }
 

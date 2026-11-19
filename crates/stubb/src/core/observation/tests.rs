@@ -1,7 +1,7 @@
 use super::records::*;
 use crate::session::Driver;
 use crate::{Error, Provider, Result, provider::BoxFuture, turn};
-use crate::{agent, session, task};
+use crate::{observation::agent, observation::task, session};
 use serde_json::json;
 use tokio::sync::broadcast;
 

@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use super::super::{events, types};
 use super::Attachment;
 use crate::providers::codex::transport::rpc::EventSink;
-use crate::{agent, session};
+use crate::{observation::agent, session};
 
 const EARLY_EVENTS: usize = 1024;
 

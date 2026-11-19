@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
 use super::controls;
-use crate::{agent, observation as obs, session, turn};
+use crate::{observation as obs, observation::agent, session, turn};
 
 pub(super) struct State {
     pub(super) stream_id: String,

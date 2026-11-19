@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::Attachment;
-use crate::{agent, observation as obs, session, task, turn};
+use crate::{observation as obs, observation::agent, observation::task, session, turn};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

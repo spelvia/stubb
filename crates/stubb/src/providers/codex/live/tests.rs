@@ -54,7 +54,7 @@ fn snapshot_watermark_is_atomic_and_keeps_owned_turns_and_pending_stops() {
         },
     });
     let (receipt, _) = attachment
-        .begin_stop(crate::control::Target::Agent { id: "root".into() })
+        .begin_stop(crate::observation::control::Target::Agent { id: "root".into() })
         .unwrap();
     let snapshot = attachment.snapshot();
     assert_eq!(snapshot.pending_controls[0].id, receipt.id);
@@ -84,7 +84,7 @@ fn snapshot_watermark_is_atomic_and_keeps_owned_turns_and_pending_stops() {
 
 #[test]
 fn controls_bind_generations_and_preserve_completion_before_ack() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     let attachment = make_attachment();
     attachment.emit(session::Event::TurnStart {
         turn_id: "old".into(),
@@ -135,7 +135,7 @@ fn controls_bind_generations_and_preserve_completion_before_ack() {
 
 #[test]
 fn stop_terminal_waits_for_native_ack_and_keeps_stopped_on_late_list() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../fixtures/codex-observation-0.159.0.json")).unwrap();
     let attachment = make_attachment();
@@ -159,7 +159,7 @@ fn stop_terminal_waits_for_native_ack_and_keeps_stopped_on_late_list() {
     ));
     assert_eq!(
         attachment.state.lock().unwrap().tasks.summaries()[0].status,
-        crate::task::Status::Failed
+        crate::observation::task::Status::Failed
     );
     assert_eq!(
         attachment.stop_result(&receipt.id, Ok(true)).disposition,
@@ -169,7 +169,7 @@ fn stop_terminal_waits_for_native_ack_and_keeps_stopped_on_late_list() {
     attachment.terminals("root", page.data);
     assert_eq!(
         attachment.state.lock().unwrap().tasks.summaries()[0].status,
-        crate::task::Status::Stopped
+        crate::observation::task::Status::Stopped
     );
     assert!(
         attachment
@@ -197,7 +197,7 @@ fn captured_terminal_retains_owner_after_turn_and_bootstraps_until_native_exit()
     attachment.terminals("root", page.data);
     let task = attachment.state.lock().unwrap().tasks.summaries()[0].clone();
     assert_eq!(task.owner_agent_id.as_deref(), Some("root"));
-    assert_eq!(task.status, crate::task::Status::Running);
+    assert_eq!(task.status, crate::observation::task::Status::Running);
     assert_eq!(
         attachment.state.lock().unwrap().aggregate_status(),
         session::Status::Active
@@ -207,7 +207,7 @@ fn captured_terminal_retains_owner_after_turn_and_bootstraps_until_native_exit()
     attachment.terminal_failure("root", "test transport loss");
     assert_eq!(
         attachment.state.lock().unwrap().tasks.summaries()[0].status,
-        crate::task::Status::Unknown
+        crate::observation::task::Status::Unknown
     );
     for notification in notifications.iter().skip(2) {
         attachment.emit(super::super::events::from_notification(
@@ -217,7 +217,7 @@ fn captured_terminal_retains_owner_after_turn_and_bootstraps_until_native_exit()
     }
     let summary = attachment.state.lock().unwrap().tasks.summaries()[0].clone();
     assert_eq!(summary.id, task.id);
-    assert_eq!(summary.status, crate::task::Status::Failed);
+    assert_eq!(summary.status, crate::observation::task::Status::Failed);
     let records = drain(&mut receiver);
     assert!(
         records

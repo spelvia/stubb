@@ -224,8 +224,8 @@ impl ClaudeProcess {
     pub(super) async fn task_output(
         &self,
         id: &str,
-        query: crate::task::OutputQuery,
-    ) -> Result<crate::task::OutputPage> {
+        query: crate::observation::task::OutputQuery,
+    ) -> Result<crate::observation::task::OutputPage> {
         let binding = self.shared.observation.output_binding(id)?;
         let page =
             crate::core::runtime::files::blocking(move || super::output::read(binding, query))
@@ -243,9 +243,9 @@ impl ClaudeProcess {
 
     pub(super) async fn stop(
         &self,
-        target: crate::control::Target,
+        target: crate::observation::control::Target,
         timeout: Duration,
-    ) -> Result<crate::control::Receipt> {
+    ) -> Result<crate::observation::control::Receipt> {
         let request = self.shared.observation.begin_stop(target)?;
         self.stop_request(request, timeout).await
     }
@@ -265,7 +265,7 @@ impl ClaudeProcess {
         &self,
         request: super::live::StopRequest,
         timeout: Duration,
-    ) -> Result<crate::control::Receipt> {
+    ) -> Result<crate::observation::control::Receipt> {
         let Some(native) = request.native else {
             return Ok(self.shared.observation.stop_receipt(&request.id));
         };

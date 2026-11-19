@@ -3,7 +3,9 @@
 use serde_json::{Value, json};
 
 use super::state::State;
-use crate::{Error, Result, control, observation as obs, session, task, turn};
+use crate::{
+    Error, Result, observation as obs, observation::control, observation::task, session, turn,
+};
 use tokio::sync::broadcast;
 
 type Records = broadcast::Sender<obs::Record>;
@@ -61,9 +63,9 @@ impl State {
                     .map(|turn| Scope::Root { turn: turn.clone() }),
                 matches!(
                     self.root.agent.status,
-                    crate::agent::Status::Completed
-                        | crate::agent::Status::Failed
-                        | crate::agent::Status::Interrupted
+                    crate::observation::agent::Status::Completed
+                        | crate::observation::agent::Status::Failed
+                        | crate::observation::agent::Status::Interrupted
                 ),
             ),
             control::Target::Agent { id } => {

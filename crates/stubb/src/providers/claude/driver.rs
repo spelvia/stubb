@@ -53,21 +53,27 @@ impl session::Driver for ClaudeSession {
         Box::pin(async { Ok(self.process.snapshot()) })
     }
 
-    fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+    fn stop_agent<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
         Box::pin(async move {
             self.process
                 .stop(
-                    crate::control::Target::Agent { id: id.into() },
+                    crate::observation::control::Target::Agent { id: id.into() },
                     self.request_timeout,
                 )
                 .await
         })
     }
-    fn stop_task<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+    fn stop_task<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
         Box::pin(async move {
             self.process
                 .stop(
-                    crate::control::Target::Task { id: id.into() },
+                    crate::observation::control::Target::Task { id: id.into() },
                     self.request_timeout,
                 )
                 .await
@@ -77,8 +83,8 @@ impl session::Driver for ClaudeSession {
     fn task_output<'a>(
         &'a self,
         id: &'a str,
-        query: crate::task::OutputQuery,
-    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
         Box::pin(async move { self.process.task_output(id, query).await })
     }
 

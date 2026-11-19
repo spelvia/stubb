@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::{Codex, provider, types};
-use crate::{Error, Result, agent, turn};
+use crate::{Error, Result, observation::agent, turn};
 use provider::PAGE_LIMIT;
 
 const SOURCES: [&str; 5] = [

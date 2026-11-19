@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use super::turns::Branch;
-use crate::{agent, observation as obs, session, task, turn};
+use crate::{observation as obs, observation::agent, observation::task, session, turn};
 
 type Records = broadcast::Sender<obs::Record>;
 type Legacy = broadcast::Sender<session::Event>;

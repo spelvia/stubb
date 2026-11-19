@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Result, task};
+use crate::{Error, Result, observation::task};
 
 #[derive(Clone)]
 pub(super) struct Binding {

@@ -1,15 +1,8 @@
-//! Session-wide observation contracts, separate from the legacy root event stream.
-//!
-//! These types describe a negotiated harness surface, not Stubb orchestration.
-//! Adapters must explicitly implement observation; empty results cannot stand in
-//! for unsupported discovery. Check effective capabilities:
-//! native support and adapter coverage vary by feature.
-
 use serde::{Deserialize, Serialize};
 
 pub use super::capabilities::{Capabilities, Coverage, Feature, Support};
 
-use crate::{agent, session, task};
+use crate::{observation::agent, observation::task, session};
 
 /// One observation in a live attachment. Sequences begin at one and increase
 /// under the same boundary that updates snapshot state. A new attachment gets a
@@ -41,7 +34,7 @@ pub struct Record {
 #[non_exhaustive]
 pub enum Event {
     Control {
-        receipt: crate::control::Receipt,
+        receipt: crate::observation::control::Receipt,
     },
     Agent {
         agent: agent::Summary,
@@ -90,6 +83,6 @@ pub struct Snapshot {
     /// Materialized turns/items still receiving activity, including commands
     /// that continue after their owning turn has ended.
     pub active_turns: Vec<agent::OwnedTurn>,
-    pub pending_controls: Vec<crate::control::Receipt>,
+    pub pending_controls: Vec<crate::observation::control::Receipt>,
     pub capabilities: Capabilities,
 }

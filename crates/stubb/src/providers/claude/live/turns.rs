@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::providers::claude::events::SessionState;
-use crate::{agent, session, turn};
+use crate::{observation::agent, session, turn};
 
 pub(super) struct Branch {
     pub(super) agent: agent::Summary,

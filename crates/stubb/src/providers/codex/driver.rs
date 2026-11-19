@@ -27,7 +27,10 @@ pub(super) struct CodexSession {
 }
 
 impl CodexSession {
-    async fn stop(&self, target: crate::control::Target) -> Result<crate::control::Receipt> {
+    async fn stop(
+        &self,
+        target: crate::observation::control::Target,
+    ) -> Result<crate::observation::control::Receipt> {
         let (receipt, request) = self.attachment.begin_stop(target)?;
         let Some(request) = request else {
             return Ok(receipt);
@@ -102,11 +105,17 @@ impl session::Driver for CodexSession {
         Box::pin(async { Ok(self.attachment.snapshot()) })
     }
 
-    fn stop_agent<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
-        Box::pin(self.stop(crate::control::Target::Agent { id: id.into() }))
+    fn stop_agent<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
+        Box::pin(self.stop(crate::observation::control::Target::Agent { id: id.into() }))
     }
-    fn stop_task<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
-        Box::pin(self.stop(crate::control::Target::Task { id: id.into() }))
+    fn stop_task<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
+        Box::pin(self.stop(crate::observation::control::Target::Task { id: id.into() }))
     }
 
     fn set_permissions(

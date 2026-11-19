@@ -12,7 +12,7 @@ pub struct Summary {
     pub owner_agent_id: Option<String>,
     /// Native task nesting only; do not infer this from agent ancestry.
     pub parent_id: Option<String>,
-    pub origin: Option<crate::agent::Origin>,
+    pub origin: Option<crate::observation::agent::Origin>,
     pub kind: Kind,
     pub description: Option<String>,
     pub background: Option<bool>,

@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use super::Attachment;
-use crate::{agent, observation as obs, session, turn};
+use crate::{observation as obs, observation::agent, session, turn};
 
 fn drain<T: Clone>(receiver: &mut broadcast::Receiver<T>) -> Vec<T> {
     let mut events = Vec::new();
@@ -84,10 +84,10 @@ fn captured_tree_keeps_native_ids_models_and_exact_legacy_projection() {
     );
     assert_eq!(records.last().unwrap().seq, snapshot.seq);
     let command = snapshot.tasks.iter().find(|t| t.id == "bash-task").unwrap();
-    assert_eq!(command.status, crate::task::Status::Completed);
+    assert_eq!(command.status, crate::observation::task::Status::Completed);
     assert_eq!(command.owner_agent_id.as_deref(), Some("root"));
     assert!(
-        matches!(&command.kind, crate::task::Kind::Command {command} if command == "sleep 12; printf claude-task-ok")
+        matches!(&command.kind, crate::observation::task::Kind::Command {command} if command == "sleep 12; printf claude-task-ok")
     );
     assert_eq!(snapshot.tasks.len(), 4);
     assert_eq!(
@@ -348,12 +348,15 @@ fn task_membership_patch_and_completion_preserve_native_outcomes_and_progress() 
     assert_eq!(live.snapshot().tasks[0].owner_agent_id, None);
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Unknown
+        crate::observation::task::Status::Unknown
     );
     live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
     live.message(&json!({"type":"system","subtype":"task_progress","task_id":"cmd","tool_use_id":"bash","description":"progress","usage":{"total_tokens":19,"tool_uses":2,"duration_ms":100},"last_tool_name":"Bash"}));
     live.message(&json!({"type":"system","subtype":"task_updated","task_id":"cmd","patch":{"status":"paused","is_backgrounded":true}}));
-    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Paused);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::observation::task::Status::Paused
+    );
     assert_eq!(
         live.snapshot().tasks[0]
             .progress
@@ -365,13 +368,19 @@ fn task_membership_patch_and_completion_preserve_native_outcomes_and_progress() 
     live.message(&json!({"type":"system","subtype":"background_tasks_changed","tasks":[]}));
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Unknown
+        crate::observation::task::Status::Unknown
     );
     finish(&live, "cmd", "bash", "failed");
-    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Failed);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::observation::task::Status::Failed
+    );
     live.message(&json!({"type":"system","subtype":"background_tasks_changed","tasks":["cmd"]}));
     live.close(session::CloseReason::Client);
-    assert_eq!(live.snapshot().tasks[0].status, crate::task::Status::Failed);
+    assert_eq!(
+        live.snapshot().tasks[0].status,
+        crate::observation::task::Status::Failed
+    );
 }
 
 #[test]
@@ -381,18 +390,18 @@ fn task_outcome_before_start_and_missing_logs_are_not_reinterpreted_as_running()
     live.message(&json!({"type":"system","subtype":"task_started","task_id":"cmd","tool_use_id":"bash","task_type":"local_bash","is_backgrounded":true}));
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Completed
+        crate::observation::task::Status::Completed
     );
     assert_eq!(
         live.snapshot().tasks[0].output,
-        crate::task::OutputAvailability::Unknown
+        crate::observation::task::OutputAvailability::Unknown
     );
     let binding = live.output_binding("cmd").unwrap();
     assert_eq!(
         crate::providers::claude::output::read(binding, Default::default())
             .unwrap()
             .availability,
-        crate::task::OutputAvailability::Unavailable
+        crate::observation::task::OutputAvailability::Unavailable
     );
     assert!(matches!(
         live.output_binding("missing"),
@@ -407,7 +416,7 @@ fn native_status_completion_does_not_promise_that_log_writes_are_final() {
     live.message(&json!({"type":"system","subtype":"task_updated","task_id":"cmd","patch":{"status":"completed"}}));
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Completed
+        crate::observation::task::Status::Completed
     );
     assert!(!live.output_binding("cmd").unwrap().terminal);
     finish(&live, "cmd", "bash", "completed");
@@ -416,7 +425,7 @@ fn native_status_completion_does_not_promise_that_log_writes_are_final() {
 
 #[test]
 fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     let live = Attachment::new("root");
     live.turn_started("turn", "child");
     tool(&live, None, "spawn");
@@ -445,7 +454,7 @@ fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
     assert_eq!(live.stop_receipt(&task.id).disposition, D::Accepted);
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Stopping
+        crate::observation::task::Status::Stopping
     );
     finish(&live, "child", "spawn", "stopped");
     assert_eq!(live.stop_receipt(&first.id).disposition, D::Confirmed);
@@ -453,7 +462,7 @@ fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
     assert!(live.snapshot().pending_controls.is_empty());
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Stopped
+        crate::observation::task::Status::Stopped
     );
     assert_eq!(
         live.begin_stop(Target::Task { id: "child".into() })
@@ -465,7 +474,7 @@ fn stops_deduplicate_native_execution_and_wait_for_termination_evidence() {
 
 #[test]
 fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     for (status, expected) in [
         ("completed", D::AlreadyFinished),
         ("stopped", D::Confirmed),
@@ -482,7 +491,7 @@ fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
         assert_eq!(live.finish_stop(&request.id, &Ok(())).disposition, expected);
         assert_ne!(
             live.snapshot().tasks[0].status,
-            crate::task::Status::Stopping
+            crate::observation::task::Status::Stopping
         );
     }
     let live = Attachment::new("root");
@@ -500,19 +509,19 @@ fn terminal_before_ack_and_new_generations_cannot_be_overwritten() {
     );
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Running
+        crate::observation::task::Status::Running
     );
     finish(&live, "child", "spawn", "stopped");
     assert_eq!(live.stop_receipt(&request.id).disposition, D::Unconfirmed);
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Running
+        crate::observation::task::Status::Running
     );
 }
 
 #[test]
 fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     let live = Attachment::new("root");
     tool(&live, None, "spawn");
     start(&live, "child", "spawn");
@@ -545,7 +554,7 @@ fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
     assert_eq!(live.stop_receipt(&request.id).disposition, D::Unconfirmed);
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Unknown
+        crate::observation::task::Status::Unknown
     );
     assert!(matches!(
         live.begin_stop(Target::Agent {
@@ -563,7 +572,7 @@ fn lost_ack_can_resolve_but_detached_or_rejected_stops_cannot() {
 
 #[test]
 fn root_stop_is_scoped_to_current_native_turn() {
-    use crate::control::{Disposition as D, Target};
+    use crate::observation::control::{Disposition as D, Target};
     let live = Attachment::new("root");
     let idle = live
         .begin_stop(Target::Agent { id: "root".into() })
@@ -600,12 +609,15 @@ fn child_outcome_before_identity_bookend_is_recovered_without_resurrection() {
         snap.agents.iter().find(|a| a.id == "child").unwrap().status,
         agent::Status::Interrupted
     );
-    assert_eq!(snap.tasks[0].status, crate::task::Status::Stopped);
+    assert_eq!(
+        snap.tasks[0].status,
+        crate::observation::task::Status::Stopped
+    );
     assert!(!snap.active_turns.iter().any(|t| t.agent_id == "child"));
     finish(&live, "child", "spawn", "completed");
     assert_eq!(
         live.snapshot().tasks[0].status,
-        crate::task::Status::Stopped
+        crate::observation::task::Status::Stopped
     );
 }
 
@@ -639,7 +651,10 @@ fn native_task_id_without_tool_only_resolves_an_unambiguous_first_execution() {
         snap.tasks[0].progress.as_ref().unwrap().total_tokens,
         Some(10)
     );
-    assert_eq!(snap.tasks[0].status, crate::task::Status::Running);
+    assert_eq!(
+        snap.tasks[0].status,
+        crate::observation::task::Status::Running
+    );
 }
 
 #[test]

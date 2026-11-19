@@ -7,7 +7,7 @@ use super::{
     agents::{self, Scope, Stored},
     output,
 };
-use crate::{Error, Result, agent, task, turn};
+use crate::{Error, Result, observation::agent, observation::task, turn};
 
 #[derive(Clone)]
 pub(super) struct Entry {

@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use tokio::sync::broadcast;
 
 use crate::providers::codex::transport::rpc::EventSink;
-use crate::{agent, observation as obs, session};
+use crate::{observation as obs, observation::agent, session};
 use state::{Branch, State};
 
 const BUFFER: usize = 1024;

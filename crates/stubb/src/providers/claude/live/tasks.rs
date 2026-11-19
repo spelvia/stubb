@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::{agent, task};
+use crate::{observation::agent, observation::task};
 
 #[derive(Clone)]
 pub(super) struct Entry {

@@ -572,8 +572,8 @@ impl Provider for Claude {
     fn list_agents<'a>(
         &'a self,
         root: &'a str,
-        query: crate::agent::Query,
-    ) -> BoxFuture<'a, Result<crate::agent::Page>> {
+        query: crate::observation::agent::Query,
+    ) -> BoxFuture<'a, Result<crate::observation::agent::Page>> {
         Box::pin(Claude::list_agents(self, root, query))
     }
     fn list_agent_turns<'a>(
@@ -581,23 +581,23 @@ impl Provider for Claude {
         root: &'a str,
         id: &'a str,
         query: turn::Query,
-    ) -> BoxFuture<'a, Result<crate::agent::TurnPage>> {
+    ) -> BoxFuture<'a, Result<crate::observation::agent::TurnPage>> {
         Box::pin(Claude::list_agent_turns(self, root, id, query))
     }
 
     fn list_tasks<'a>(
         &'a self,
         root: &'a str,
-        query: crate::task::Query,
-    ) -> BoxFuture<'a, Result<crate::task::Page>> {
+        query: crate::observation::task::Query,
+    ) -> BoxFuture<'a, Result<crate::observation::task::Page>> {
         Box::pin(Claude::list_tasks(self, root, query))
     }
     fn task_output<'a>(
         &'a self,
         root: &'a str,
         id: &'a str,
-        query: crate::task::OutputQuery,
-    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
         Box::pin(Claude::task_output(self, root, id, query))
     }
 

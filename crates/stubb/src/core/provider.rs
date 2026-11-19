@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::Catalog;
 use crate::session::{self, Session};
-use crate::{Error, Result, agent, turn};
+use crate::{Error, Result, observation::agent, turn};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -102,8 +102,8 @@ pub trait Provider: Send + Sync {
     fn list_tasks<'a>(
         &'a self,
         _session_id: &'a str,
-        _query: crate::task::Query,
-    ) -> BoxFuture<'a, Result<crate::task::Page>> {
+        _query: crate::observation::task::Query,
+    ) -> BoxFuture<'a, Result<crate::observation::task::Page>> {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "list_tasks",
@@ -117,8 +117,8 @@ pub trait Provider: Send + Sync {
         &'a self,
         _session_id: &'a str,
         _task_id: &'a str,
-        _query: crate::task::OutputQuery,
-    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        _query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "task_output",
