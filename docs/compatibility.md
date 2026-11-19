@@ -1,13 +1,13 @@
 # Compatibility
 
-Keel is embedded in long-running host applications that store its event JSON
+Stubb is embedded in long-running host applications that store its event JSON
 and send its types over their own wire formats. These rules say what may
 change between releases, and how hosts should read data written by another
-version of Keel.
+version of Stubb.
 
 ## Versions
 
-Keel follows [Semantic Versioning](https://semver.org) as Cargo applies it:
+Stubb follows [Semantic Versioning](https://semver.org) as Cargo applies it:
 
 - Before 1.0, the minor version is the breaking one. Within a `0.x` minor
   version (`0.1.0`, `0.1.1`, …), releases only add: new modules, functions,
@@ -18,13 +18,13 @@ Keel follows [Semantic Versioning](https://semver.org) as Cargo applies it:
 - The minimum supported Rust version (`rust-version`) is raised only in a
   minor (before 1.0) or major release.
 
-CI runs [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
+On release PRs, CI runs [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
 against the latest release tag; it starts with the first release. To run it
 locally against a tag or commit:
 
 ```sh
 cargo install cargo-semver-checks --locked   # or: nix shell nixpkgs#cargo-semver-checks
-cargo semver-checks -p keel --baseline-rev v0.1.0-rc.1
+cargo semver-checks -p stubb --baseline-rev v0.1.0-rc.1
 ```
 
 ## Types that grow
@@ -35,7 +35,7 @@ cargo semver-checks -p keel --baseline-rev v0.1.0-rc.1
   task and agent kinds, observation events and the permission
   configurations. Match them with a wildcard arm (`_ => …`) that does
   something sensible for a value your code does not know yet.
-- **Structs Keel builds for hosts are `#[non_exhaustive]`** and gain
+- **Structs Stubb builds for hosts are `#[non_exhaustive]`** and gain
   fields: probe reports, update packages, plans and outcomes, profiles and
   logos, registry entries and account usage. Read their fields; build them
   only through their constructors, such as `probe::Report::new` for tests.
@@ -53,11 +53,11 @@ cargo semver-checks -p keel --baseline-rev v0.1.0-rc.1
 
 ## Event format
 
-`keel::session::EVENT_FORMAT` is the version of the JSON that
+`stubb::session::EVENT_FORMAT` is the version of the JSON that
 `session::Event` and everything inside it (turns, items, requests,
 outcomes) serialize to. It is `1`.
 
-Within one format, Keel only adds: new event types, item and tool kinds,
+Within one format, Stubb only adds: new event types, item and tool kinds,
 enum values, and fields. Fields added to existing types are optional, so
 older events still read. The format number changes, together with a new
 minor (before 1.0) or major version, when a field or type is removed or

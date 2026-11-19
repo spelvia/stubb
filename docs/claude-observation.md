@@ -1,6 +1,6 @@
 # Claude delegated work and task monitoring
 
-Keel bridges Claude Code's native stream-json process. Claude launches the work;
+Stubb bridges Claude Code's native stream-json process. Claude launches the work;
 consumers observe it and may forward native stops. The adapter was exercised
 with Claude Code 2.1.289 and `claude-sonnet-4-6`, medium effort, standard speed.
 Older native CLIs can omit fields needed for parts of this contract. Check
@@ -57,7 +57,7 @@ The current background membership set is a native level signal; missing a task
 from it does not establish success or cancellation. The adapter accepts both
 native task-object arrays and older SDK ID arrays. Root completion can coexist
 with running children or commands, and the aggregate session remains active.
-Pausing/running changes are monitored when native patches report them; Keel does
+Pausing/running changes are monitored when native patches report them; Stubb does
 not add consumer task-launch, pause, continuation or scheduling APIs.
 
 ## Stops and outcomes
@@ -78,7 +78,7 @@ Claude's `stop_task` has no atomic native generation guard. A reused task needs
 its invocation ID to correlate outcomes after the first execution. An outcome
 without sufficient identity remains inconclusive. Stops follow native ownership
 semantics; stopping a parent does not promise every child or owned task stopped.
-Keel does not kill individual OS processes or traverse a subtree to imitate a
+Stubb does not kill individual OS processes or traverse a subtree to imitate a
 native operation. Process loss marks nonterminal work unknown, not interrupted.
 
 ## History, resume and logs
@@ -99,7 +99,7 @@ history with agent status unknown; this does not assert that it is still running
 Native user cancellations may not persist a terminal notification, so a task that
 was stopped live can correctly become unknown in a later stored read.
 
-Forwarded child results may omit structured result metadata. Keel joins the
+Forwarded child results may omit structured result metadata. Stubb joins the
 actual result tool ID to an already-known native task bookend before extracting
 its log path; the text never supplies task identity or execution status.
 
@@ -126,7 +126,7 @@ Adapter unit tests and captured protocol fixtures cover native decoding,
 routing, identity, task state, and stop handling. The scripted subprocess test
 harness has been removed, so these tests do not verify the complete process
 transport path.
-Real keel-tester checks separately exercise Sonnet 4.6 trees, siblings, nested
+Separate live checks exercise Sonnet 4.6 trees, siblings, nested
 agents, background work, progress/logs, native stops, selectable history and
 resume/continuation. These checks do not imply support for external Claude
 sessions, experimental agent teams or native features that provide no observable
