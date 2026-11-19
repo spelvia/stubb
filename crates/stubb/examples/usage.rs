@@ -1,8 +1,8 @@
 //! Read Codex or Claude Code account quotas without running a model turn:
 //! `cargo run --example usage -- codex [executable]` or `-- claude [executable]`.
 use stubb::Provider;
-use stubb::claude::{Claude, ClaudeConfig};
-use stubb::codex::{Codex, CodexConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
+use stubb::providers::codex::{Codex, CodexConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

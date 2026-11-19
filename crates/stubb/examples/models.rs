@@ -9,9 +9,9 @@
 
 use stubb::Provider;
 use stubb::catalog::FastMode;
-use stubb::claude::{Claude, ClaudeConfig};
-use stubb::codex::{Codex, CodexConfig};
-use stubb::pi::{Pi, PiConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
+use stubb::providers::codex::{Codex, CodexConfig};
+use stubb::providers::pi::{Pi, PiConfig};
 
 #[tokio::main]
 async fn main() -> stubb::Result<()> {

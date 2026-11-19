@@ -1,129 +1,165 @@
-# Stubb
+<h1 align="center"><img src="docs/assets/stubb.svg" width="32" height="32" alt=""> stubb</h1>
 
-## Overview
+[![crates.io](https://img.shields.io/crates/v/stubb.svg)](https://crates.io/crates/stubb)
+[![docs.rs](https://img.shields.io/docsrs/stubb)](https://docs.rs/stubb)
+[![CI](https://github.com/spelvia/stubb/actions/workflows/ci.yml/badge.svg)](https://github.com/spelvia/stubb/actions/workflows/ci.yml)
+[![MSRV 1.99](https://img.shields.io/badge/rustc-1.99%2B-blue.svg)](#installation)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Stubb is a Rust library for embedding coding agents in your application. It connects
-to Codex, Claude Code, and Pi through their native protocols, and to any agent that
-speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), and
-exposes a shared asynchronous API for sessions, streaming, interactive requests,
-and agent controls.
+**A Rust library for embedding coding agents in your application.**
 
-Use Stubb to build chat interfaces, development tools, or agent dashboards.
-Stubb manages transport and session state; your application handles presentation
+Stubb drives Codex, Claude Code, Pi, and any [Agent Client Protocol](https://agentclientprotocol.com)
+(ACP) agent through their native protocols, and gives you one asynchronous API
+for sessions, streaming, permission requests, and agent controls. Use it to
+build chat interfaces, developer tools, or agent dashboards: Stubb handles the
+agent processes and session state, and your application handles presentation
 and user decisions.
 
 ## Installation
 
-Requires **Rust 1.99.0 or newer**. Add Stubb to your Rust project:
+Stubb requires **Rust 1.99 or newer** and a [Tokio](https://tokio.rs) runtime.
 
 ```sh
-cargo add stubb@0.1.0-rc.1
+cargo add stubb
+cargo add tokio --features macros,rt-multi-thread
 ```
 
-Install and authenticate the CLI for each provider you want to use. For Pi,
-configure credentials for its model providers. Stubb uses these local executables
-and their native configuration.
+Stubb talks to the agent CLIs already installed on the machine. Install and sign
+in to each one you want to use (`codex`, `claude`, or `pi`). Stubb uses their
+existing configuration and credentials.
+
+Every provider is enabled by default. To compile only the ones you use, turn
+off default features and pick from `claude`, `codex`, `pi`, and `acp`:
+
+```sh
+cargo add stubb --no-default-features --features claude
+```
+
+## Quick start
+
+Start a Claude Code session in the current directory, send a message, and print
+the reply as it streams:
+
+```rust
+use stubb::providers::claude::{Claude, ClaudeConfig};
+use stubb::{session, turn};
+use tokio::sync::broadcast::error::RecvError;
+
+#[tokio::main]
+async fn main() -> stubb::Result<()> {
+    let provider = Claude::new(ClaudeConfig::default());
+    let live = provider
+        .start_session(session::Spec {
+            cwd: std::env::current_dir()?,
+            settings: session::Settings::default(),
+        })
+        .await?;
+
+    // Subscribe before sending: events emitted earlier are not replayed.
+    let mut events = live.subscribe();
+    let receipt = live
+        .send(turn::Input::text(
+            "Summarize this repository in one paragraph.",
+        ))
+        .await?;
+
+    loop {
+        let event = match events.recv().await {
+            Ok(event) => event,
+            Err(RecvError::Lagged(_)) => continue,
+            Err(RecvError::Closed) => break,
+        };
+        match event {
+            session::Event::ItemDelta {
+                delta: turn::Delta::Text { text },
+                ..
+            } => print!("{text}"),
+            session::Event::TurnEnd { turn } if turn.id == receipt.turn_id => break,
+            _ => {}
+        }
+    }
+    println!();
+
+    live.close().await?;
+    provider.shutdown().await;
+    Ok(())
+}
+```
+
+Swap in `stubb::providers::codex::Codex`, `stubb::providers::pi::Pi`, or
+`stubb::providers::acp::AcpProvider` to use another agent. Every provider
+implements the same `stubb::Provider` trait.
+
+## Supported agents
+
+| Agent | Executable | Protocol |
+| --- | --- | --- |
+| OpenAI Codex | `codex` | App-server JSON-RPC |
+| Claude Code | `claude` | Stream JSON |
+| Pi | `pi` | RPC |
+| Any ACP agent | Configured per agent, for example `npx -y @google/gemini-cli --acp` | ACP v1 (JSON-RPC over stdio) |
+
+ACP agents are configured at run time with `stubb::providers::acp::AcpProvider`. The
+`stubb::providers::acp::registry` module reads the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+(a copy is bundled for offline use) and turns an entry into the command that
+starts it. Stubb never downloads anything itself.
+
+Agents differ, and Stubb keeps those differences visible rather than hiding them.
+Codex and Claude Code have their own permission, sandbox, and planning controls.
+Pi supports steering and follow-up queues but has no permission system or
+sandbox. Each provider reports which operations it supports. Anything
+unsupported returns an explicit error.
 
 ## Features
 
 | Area | What you can do |
 | --- | --- |
-| Sessions | Start, resume, and list sessions; read stored conversation history |
-| Streaming and recovery | Receive messages, tool activity, and turn events; recover attributed activity through sequenced records and snapshots |
-| Interactive requests | Forward tool permission prompts and answer them asynchronously: allow once, allow for the session, deny, or deny and stop (Claude Code; opt in with `Settings::forward_requests`) |
-| Permissions and planning | Configure native approval rules and sandbox settings; select plan mode and transition to execution |
-| Models and settings | Discover models; select and update model, effort, speed, and permission settings during a session |
-| Active input | Steer ongoing work or queue follow-up input through supported native operations |
-| Attachments | Send images and supported native file references alongside text |
-| Context | Inspect reported context usage and capacity; request native compaction and observe its progress |
-| Agents and tasks | Follow subagents and background tasks, read transcripts and paged logs, interrupt turns, and stop individual work |
-| Connection and accounts | Inspect CLI availability, version, connection health, and reported authentication status; use native sign-in flows where available; agent processes die with the host, start with the host's environment or only the variables it allows, and the shared Codex app-server closes when idle |
-| Skills and commands | Discover and invoke supported native skills, commands, and prompt templates |
-| Usage and limits | Read reported token usage, costs, and rate limits with their native units and scope; read Codex and Claude Code account quotas without a model turn |
+| Sessions | Start, resume, fork, and list sessions; read stored conversation history |
+| Streaming | Receive messages, tool activity, and turn events; recover missed activity from sequenced records and snapshots |
+| Permission requests | Forward tool permission prompts to your users and answer them asynchronously |
+| Permissions and planning | Configure native approval rules and sandbox settings; use plan mode and switch to execution |
+| Models and settings | Discover models; change model, effort, speed, and permissions mid-session |
+| Active input | Steer a running turn or queue follow-up messages |
+| Attachments | Send images and native file references with text |
+| Context | Inspect context usage and request native compaction |
+| Agents and tasks | Follow subagents and background tasks, read their logs, interrupt turns, and stop individual work |
+| Connection and accounts | Check CLI availability, version, and sign-in status; control the environment agent processes start with |
+| Skills and commands | Discover and invoke native skills, commands, and prompt templates |
+| Usage and limits | Read token usage, costs, rate limits, and Codex or Claude Code account quotas |
 
-Support depends on the provider, CLI version, model, and session configuration.
-Capability reporting identifies supported operations and partial coverage;
-unsupported operations return explicit errors. Unreported usage or account data
-remains unknown.
+## Documentation
 
-## Supported providers
+- **[API reference on docs.rs](https://docs.rs/stubb)**: every type, provider,
+  and capability.
+- **[Changelog](https://github.com/spelvia/stubb/releases)**: notes for every release.
 
-| Provider | Executable | Native protocol |
-| --- | --- | --- |
-| OpenAI Codex | `codex` | App-server JSON-RPC |
-| Claude Code | `claude` | Stream JSON |
-| Pi | `pi` | RPC |
-| Any ACP agent | Configured per agent (for example `npx -y @google/gemini-cli --acp`) | ACP v1 (JSON-RPC over stdio) |
+### Examples
 
-ACP agents are configured at run time with `stubb::acp::AcpProvider`. The
-`stubb::registry` module parses the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
-(a copy is bundled for offline use) and turns an entry into the command that starts
-it, through `npx`, `uvx`, or a binary the host has downloaded. Stubb performs no
-downloads itself. `stubb::acp::probe` reports whether an agent is installed and,
-optionally, its name, version and sign-in methods from `initialize`.
+Run any example from a checkout with `cargo run --example <name> -- <args>`:
 
-Codex and Claude expose different permission, sandbox, and planning controls.
-Pi supports extension dialogs, steering, and follow-up queues, but has no built-in
-permission system, sandbox, or plan mode. ACP agents report their models, efforts
-and modes per session, ask for permissions through ACP, and read or write files
-only within the session's folder; Stubb offers them no terminals. Stubb preserves
-these native differences.
-
-## Documentation and examples
-
-See the [0.1.0-rc.1 API documentation](https://docs.rs/stubb/0.1.0-rc.1/stubb/) for provider
-setup, session operations, event handling, and capability details.
-
-Guides in [docs](docs): [agent process lifetime](docs/process-lifetime.md),
-[agent process environment](docs/agent-environment.md), and
-[compatibility](docs/compatibility.md): what may change between versions,
-and how to store and read event JSON with `session::EVENT_FORMAT`.
-
-Runnable examples are included in the repository:
-
-| Example | Purpose |
+| Example | What it shows |
 | --- | --- |
-| [usage](crates/stubb/examples/usage.rs) | Read Codex or Claude Code account quotas without a model turn |
-| [models](crates/stubb/examples/models.rs) | Discover models and settings |
-| [sessions](crates/stubb/examples/sessions.rs) | List sessions and read history |
-| [chat](crates/stubb/examples/chat.rs) | Start or resume a session and stream replies |
-| [observe](crates/stubb/examples/observe.rs) | Inspect stored agents, tasks, and logs |
-| [approve](crates/stubb/examples/approve.rs) | Answer an agent's permission requests from the terminal |
-
-From a repository checkout:
+| [quickstart](crates/stubb/examples/quickstart.rs) | The program above |
+| [chat](crates/stubb/examples/chat.rs) | An interactive terminal chat with any provider, including tool activity |
+| [approve](crates/stubb/examples/approve.rs) | Answering an agent's permission requests |
+| [models](crates/stubb/examples/models.rs) | Discovering models and their settings |
+| [sessions](crates/stubb/examples/sessions.rs) | Listing sessions and reading history |
+| [observe](crates/stubb/examples/observe.rs) | Inspecting stored subagents, tasks, and logs |
+| [usage](crates/stubb/examples/usage.rs) | Reading account quotas without a model turn |
+| [permissions](crates/stubb/examples/permissions.rs) | Inspecting Codex permission configuration |
+| [probe](crates/stubb/examples/probe.rs) | Detecting which agents are installed |
 
 ```sh
-cargo run --example models -- claude
 cargo run --example chat -- codex --prompt "Explain this repository"
 ```
 
-## Releases
+## Contributing
 
-See the [release process and version notes](docs/releases/README.md).
-
-## Development
-
-```sh
-sh .githooks/install
-RUSTFMT="$(rustup which rustfmt)" "$(rustup which cargo-fmt)" fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --locked
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-cargo semver-checks -p stubb --baseline-rev <latest release tag>
-```
-
-The hooks run the formatting and Clippy checks before each commit.
-`cargo-semver-checks` (`cargo install cargo-semver-checks --locked`, or
-`nix shell nixpkgs#cargo-semver-checks`) compares the public API with a
-release; it has a baseline from the first tagged release on. Changes follow
-the [compatibility rules](docs/compatibility.md).
-
-[CI](.github/workflows/ci.yml) runs lint, builds, tests, and documentation on stable Rust alongside dependency checks.
-Release PRs also verify the package contents and compare the API with the previous release. [Dependency scans](.github/workflows/dependencies.yml) and
-[Dependabot updates](.github/dependabot.yml) also run weekly.
-
-Real-provider tests are opt-in: `cargo test --test contract -- --ignored --nocapture`.
+Bug reports, feature requests, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) to get set up. Report security issues
+privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+Stubb is licensed under the [MIT License](LICENSE). Bundled third-party assets
+are listed in [THIRD_PARTY.md](THIRD_PARTY.md).

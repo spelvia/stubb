@@ -2,8 +2,8 @@
 //!
 //! cargo run --example permissions
 
-use stubb::codex::{ApprovalPolicy, Codex, CodexConfig, Permissions, Sandbox};
-use stubb::{permission, session};
+use stubb::providers::codex::{ApprovalPolicy, Codex, CodexConfig, Permissions, Sandbox};
+use stubb::session;
 
 #[tokio::main]
 async fn main() -> stubb::Result<()> {
@@ -12,11 +12,14 @@ async fn main() -> stubb::Result<()> {
         .start_session(session::Spec {
             cwd: std::env::current_dir()?,
             settings: session::Settings {
-                permissions: Some(permission::Configuration::Codex(Permissions {
-                    approval_policy: Some(ApprovalPolicy::OnRequest),
-                    sandbox: Some(Sandbox::ReadOnly),
-                    ..Default::default()
-                })),
+                permissions: Some(
+                    Permissions {
+                        approval_policy: Some(ApprovalPolicy::OnRequest),
+                        sandbox: Some(Sandbox::ReadOnly),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
                 ..Default::default()
             },
         })

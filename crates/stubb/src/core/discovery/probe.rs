@@ -1,67 +1,21 @@
-//! Whether an agent harness is usable on this computer, without starting it.
-//!
-//! [`probe`] finds the harness's executable, reads its version and asks it
-//! whether it is signed in, using only cheap status commands: it never starts
-//! a session or sends a prompt, so probing costs nothing.
-//!
-//! ```no_run
-//! # async fn demo() {
-//! let report = stubb::probe::probe(stubb::probe::Harness::Codex, None).await;
-//! println!("{:?}", report.auth);
-//! # }
-//! ```
-
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::cli::{Cli, clis};
 use super::{executable::resolve, status::run};
 
-/// A harness Stubb can drive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-#[non_exhaustive]
-pub enum Harness {
-    Claude,
-    Codex,
-    Pi,
-}
-
-impl Harness {
-    /// Every harness Stubb supports, in a stable order. A slice, so that
-    /// adding a harness does not change its type.
-    pub const ALL: &'static [Harness] = &[Harness::Claude, Harness::Codex, Harness::Pi];
-
-    /// Stubb's provider identifier, as [`crate::Provider::id`] reports it.
-    pub fn id(self) -> &'static str {
-        match self {
-            Harness::Claude => crate::claude::PROVIDER_ID,
-            Harness::Codex => crate::codex::PROVIDER_ID,
-            Harness::Pi => crate::pi::PROVIDER_ID,
-        }
-    }
-
-    /// The executable's usual name.
-    pub fn program(self) -> &'static str {
-        match self {
-            Harness::Claude => "claude",
-            Harness::Codex => "codex",
-            Harness::Pi => "pi",
-        }
-    }
-}
-
-/// Whether the harness has credentials it can use.
+/// Whether the agent has credentials it can use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum Auth {
-    /// Signed in; `account` when the harness names it (an email, for
+    /// Signed in; `account` when the agent names it (an email, for
     /// example).
     SignedIn { account: Option<String> },
     /// Installed, but without usable credentials.
     SignedOut,
-    /// The harness could not tell; `Report::detail` says why.
+    /// The agent could not tell; `Report::detail` says why.
     Unknown,
 }
 
@@ -70,10 +24,10 @@ pub enum Auth {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Report {
-    pub harness: Harness,
+    pub cli: Cli,
     /// The executable that was found, or `None` when it is not installed.
     pub path: Option<PathBuf>,
-    /// The harness's own version string, such as `2.1.322`.
+    /// The agent's own version string, such as `2.1.322`.
     pub version: Option<String>,
     pub auth: Auth,
     /// Why something could not be determined, in a sentence for people.
@@ -81,13 +35,13 @@ pub struct Report {
 }
 
 impl Report {
-    /// A report of `harness` that found nothing yet: not installed, no
+    /// A report of `cli` that found nothing yet: not installed, no
     /// version, auth unknown. Set the public fields to describe more, for
     /// example in tests; the struct is `#[non_exhaustive]`, so it cannot be
     /// built with a struct literal outside Stubb.
-    pub fn new(harness: Harness) -> Self {
+    pub fn new(cli: Cli) -> Self {
         Self {
-            harness,
+            cli,
             path: None,
             version: None,
             auth: Auth::Unknown,
@@ -101,17 +55,17 @@ impl Report {
     }
 }
 
-/// Probes one harness. `executable` overrides where to look; a bare name or
+/// Probes one built-in agent. `executable` overrides where to look; a bare name or
 /// `None` is looked up on `PATH`, then through the user's login shell, which
 /// finds version managers (fnm, nvm, asdf) that services do not see.
-pub async fn probe(harness: Harness, executable: Option<&Path>) -> Report {
+pub async fn probe(cli: Cli, executable: Option<&Path>) -> Report {
     let program = executable
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(harness.program()));
+        .unwrap_or_else(|| PathBuf::from(cli.program()));
     let Some(path) = resolve(&program).await else {
         return Report {
             detail: Some(format!("`{}` was not found", program.display())),
-            ..Report::new(harness)
+            ..Report::new(cli)
         };
     };
     let mut detail = None;
@@ -122,14 +76,9 @@ pub async fn probe(harness: Harness, executable: Option<&Path>) -> Report {
             None
         }
     };
-    let auth = match harness {
-        Harness::Claude => crate::claude::probe::auth(&path).await,
-        Harness::Codex => crate::codex::probe::auth(&path).await,
-        Harness::Pi => crate::pi::probe::auth(&path).await,
-    };
-    let (auth, auth_detail) = auth;
+    let (auth, auth_detail) = (cli.auth)(&path).await;
     Report {
-        harness,
+        cli,
         path: Some(path),
         version,
         auth,
@@ -137,14 +86,9 @@ pub async fn probe(harness: Harness, executable: Option<&Path>) -> Report {
     }
 }
 
-/// Probes every supported harness concurrently.
+/// Probes every built-in agent compiled into Stubb, concurrently.
 pub async fn probe_all() -> Vec<Report> {
-    let (claude, codex, pi) = tokio::join!(
-        probe(Harness::Claude, None),
-        probe(Harness::Codex, None),
-        probe(Harness::Pi, None)
-    );
-    vec![claude, codex, pi]
+    futures::future::join_all(clis().iter().map(|&cli| probe(cli, None))).await
 }
 
 fn parse_version(stdout: &str) -> Option<String> {
@@ -180,12 +124,5 @@ mod tests {
         assert_eq!(parse_version("1.0.2\n").as_deref(), Some("1.0.2"));
         assert_eq!(parse_version("v3.4.0").as_deref(), Some("3.4.0"));
         assert_eq!(parse_version("no version here"), None);
-    }
-
-    #[test]
-    fn harness_ids_match_the_providers() {
-        assert_eq!(Harness::Claude.id(), "claude");
-        assert_eq!(Harness::Codex.id(), "codex");
-        assert_eq!(Harness::Pi.id(), "pi");
     }
 }

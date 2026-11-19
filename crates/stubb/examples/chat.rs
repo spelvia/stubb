@@ -16,9 +16,9 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use stubb::claude::{Claude, ClaudeConfig};
-use stubb::codex::{Codex, CodexConfig};
-use stubb::pi::{Pi, PiConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
+use stubb::providers::codex::{Codex, CodexConfig};
+use stubb::providers::pi::{Pi, PiConfig};
 use stubb::turn::{Item, ToolDetail};
 use stubb::{Provider, Session, session, turn};
 use tokio::io::{AsyncBufReadExt, BufReader};

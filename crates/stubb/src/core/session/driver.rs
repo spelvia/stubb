@@ -37,14 +37,20 @@ pub trait Driver: Send + Sync {
             })
         })
     }
-    fn stop_agent<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+    fn stop_agent<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "stop_agent",
             })
         })
     }
-    fn stop_task<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<crate::control::Receipt>> {
+    fn stop_task<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::observation::control::Receipt>> {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "stop_task",
@@ -54,8 +60,8 @@ pub trait Driver: Send + Sync {
     fn task_output<'a>(
         &'a self,
         _id: &'a str,
-        _query: crate::task::OutputQuery,
-    ) -> BoxFuture<'a, Result<crate::task::OutputPage>> {
+        _query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
         Box::pin(async {
             Err(Error::Unsupported {
                 operation: "task_output",

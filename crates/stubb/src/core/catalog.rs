@@ -18,7 +18,7 @@ pub struct Catalog {
 pub struct ProviderInfo {
     /// Stubb provider identifier, for example `codex`.
     pub id: String,
-    /// Harness version reported by the agent, when it could be determined.
+    /// Version reported by the agent, when it could be determined.
     pub version: Option<String>,
     /// Raw user agent string reported during initialization.
     pub user_agent: Option<String>,

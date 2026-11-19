@@ -19,8 +19,6 @@ use crate::{request, turn};
 ///   or type is removed or renamed, or its meaning or JSON type changes.
 ///   Events with a newer format than the host knows should be kept as they
 ///   are and not interpreted.
-///
-/// See `docs/compatibility.md` in the repository for the full rules.
 pub const EVENT_FORMAT: u32 = 1;
 
 /// Events for a live session, delivered to every subscriber.

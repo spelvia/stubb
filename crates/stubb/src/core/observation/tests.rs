@@ -1,7 +1,7 @@
 use super::records::*;
 use crate::session::Driver;
-use crate::{Error, Provider, Result, provider::BoxFuture, turn};
-use crate::{agent, session, task};
+use crate::{Error, Result, provider::BoxFuture, turn};
+use crate::{observation::agent, observation::task, session};
 use serde_json::json;
 use tokio::sync::broadcast;
 
@@ -143,11 +143,17 @@ async fn unimplemented_observation_returns_typed_errors_without_execution() {
     ));
 
     // No executable exists; these defaults must not attempt a CLI launch.
-    let provider = crate::pi::Pi::new(crate::pi::PiConfig {
+    #[cfg(feature = "pi")]
+    pi_defaults_are_unsupported_without_a_launch().await;
+}
+
+#[cfg(feature = "pi")]
+async fn pi_defaults_are_unsupported_without_a_launch() {
+    let provider = crate::providers::pi::Pi::new(crate::providers::pi::PiConfig {
         executable: "/nonexistent/stubb-contract-test".into(),
         ..Default::default()
     });
-    let provider: &dyn Provider = &provider;
+    let provider: &dyn crate::Provider = &provider;
     assert!(matches!(
         provider.list_agents("root", agent::Query::default()).await,
         Err(Error::Unsupported {

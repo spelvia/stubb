@@ -1,13 +1,13 @@
 //! Inspect stored agents, owned history and command logs without opening a session.
 //! cargo run --example observe -- claude <session-id> [--agent <id>] [--task <id>]
-use stubb::{Provider, agent, task, turn};
+use stubb::{Provider, observation::agent, observation::task, turn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let provider: Box<dyn Provider> = match args.next().as_deref() {
-        Some("claude") => Box::new(stubb::claude::Claude::new(Default::default())),
-        Some("codex") => Box::new(stubb::codex::Codex::new(Default::default())),
+        Some("claude") => Box::new(stubb::providers::claude::Claude::new(Default::default())),
+        Some("codex") => Box::new(stubb::providers::codex::Codex::new(Default::default())),
         _ => {
             return Err(
                 "usage: observe <claude|codex> <session-id> [--agent <id>] [--task <id>]".into(),

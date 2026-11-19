@@ -13,7 +13,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use stubb::claude::{Claude, ClaudeConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
 use stubb::request::{Decision, Kind, Request};
 use stubb::{Provider, Session, session, turn};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};

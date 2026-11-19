@@ -74,12 +74,12 @@ impl Session {
     /// Interrupts the agent's currently observed native turn. Does not close
     /// its context or recursively stop descendants/tasks. Follow control records
     /// for confirmation; an accepted request alone is not a final outcome.
-    pub async fn stop_agent(&self, id: &str) -> Result<crate::control::Receipt> {
+    pub async fn stop_agent(&self, id: &str) -> Result<crate::observation::control::Receipt> {
         self.driver.stop_agent(id).await
     }
 
     /// Terminates an observed native task by opaque attachment-scoped ID.
-    pub async fn stop_task(&self, id: &str) -> Result<crate::control::Receipt> {
+    pub async fn stop_task(&self, id: &str) -> Result<crate::observation::control::Receipt> {
         self.driver.stop_task(id).await
     }
 
@@ -89,8 +89,8 @@ impl Session {
     pub async fn task_output(
         &self,
         id: &str,
-        query: crate::task::OutputQuery,
-    ) -> Result<crate::task::OutputPage> {
+        query: crate::observation::task::OutputQuery,
+    ) -> Result<crate::observation::task::OutputPage> {
         self.driver.task_output(id, query).await
     }
 
