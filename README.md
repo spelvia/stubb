@@ -1,4 +1,4 @@
-# <img src="docs/assets/stubb.svg" width="24" height="24" alt=""> stubb
+<h1 align="center"><img src="docs/assets/stubb.svg" width="32" height="32" alt=""> stubb</h1>
 
 [![crates.io](https://img.shields.io/crates/v/stubb.svg)](https://crates.io/crates/stubb)
 [![docs.rs](https://img.shields.io/docsrs/stubb)](https://docs.rs/stubb)
