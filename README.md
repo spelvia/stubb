@@ -28,6 +28,13 @@ Stubb talks to the agent CLIs already installed on the machine. Install and sign
 in to each one you want to use (`codex`, `claude`, or `pi`). Stubb uses their
 existing configuration and credentials.
 
+Every provider is enabled by default. To compile only the ones you use, turn
+off default features and pick from `claude`, `codex`, `pi`, and `acp`:
+
+```sh
+cargo add stubb --no-default-features --features claude
+```
+
 ## Quick start
 
 Start a Claude Code session in the current directory, send a message, and print
@@ -79,8 +86,9 @@ async fn main() -> stubb::Result<()> {
 }
 ```
 
-Swap in `stubb::providers::codex::Codex`, `stubb::providers::pi::Pi`, or `stubb::providers::acp::AcpProvider` to
-use another agent. Every provider implements the same `stubb::Provider` trait.
+Swap in `stubb::providers::codex::Codex`, `stubb::providers::pi::Pi`, or
+`stubb::providers::acp::AcpProvider` to use another agent. Every provider
+implements the same `stubb::Provider` trait.
 
 ## Supported agents
 
