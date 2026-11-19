@@ -18,6 +18,10 @@ mod process;
 mod tools;
 pub(crate) use provider::PROVIDER_ID;
 
+/// This provider's id, as [`crate::Provider::id`] and [`crate::discovery::Cli::id`]
+/// report it. A `const`, so it can be matched on: `match cli.id() { ID => … }`.
+pub const ID: &str = PROVIDER_ID;
+
 mod cli;
 pub use cli::CLI;
 mod driver;
