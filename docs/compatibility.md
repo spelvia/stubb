@@ -14,7 +14,8 @@ Stubb follows [Semantic Versioning](https://semver.org) as Cargo applies it:
   enum variants, fields of `#[non_exhaustive]` structs, event types and
   JSON fields. Breaking changes wait for the next minor version (`0.2.0`).
 - From 1.0, breaking changes wait for the next major version.
-- Release candidates (`0.1.0-rc.1`) may still change before their release.
+- Release candidates (versions such as `0.2.0-rc.1`) may still change before
+  their release.
 - The minimum supported Rust version (`rust-version`) is raised only in a
   minor (before 1.0) or major release.
 
@@ -24,7 +25,7 @@ locally against a tag or commit:
 
 ```sh
 cargo install cargo-semver-checks --locked   # or: nix shell nixpkgs#cargo-semver-checks
-cargo semver-checks -p stubb --baseline-rev v0.1.0-rc.1
+cargo semver-checks -p stubb --baseline-rev <previous release tag>
 ```
 
 ## Types that grow
