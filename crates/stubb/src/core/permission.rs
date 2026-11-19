@@ -4,8 +4,8 @@
 //! settings retain native defaults or stored values; Stubb never invents a common
 //! permission mode across providers.
 //!
-//! Use [`crate::codex::Permissions`] through [`Configuration::Codex`] and
-//! [`crate::claude::Permissions`] through [`Configuration::Claude`].
+//! Use [`crate::providers::codex::Permissions`] through [`Configuration::Codex`] and
+//! [`crate::providers::claude::Permissions`] through [`Configuration::Claude`].
 //! [`crate::session::Info::permissions`] separates requested settings from native
 //! reported configuration. Each provider rejects the others' settings; Pi
 //! has none.
@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "provider", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum Configuration {
-    Codex(crate::codex::Permissions),
-    Claude(crate::claude::Permissions),
+    Codex(crate::providers::codex::Permissions),
+    Claude(crate::providers::claude::Permissions),
 }
 
 /// Native configuration reported at session attachment time.
@@ -27,7 +27,7 @@ pub enum Configuration {
 #[serde(tag = "provider", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum EffectiveConfiguration {
-    Codex(crate::codex::EffectivePermissions),
+    Codex(crate::providers::codex::EffectivePermissions),
 }
 
 /// Requested configuration is distinct from provider-confirmed configuration.
@@ -46,17 +46,23 @@ mod tests {
     #[tokio::test]
     async fn other_providers_reject_codex_configuration_before_native_io() {
         let providers: Vec<Box<dyn Provider>> = vec![
-            Box::new(crate::pi::Pi::new(crate::pi::PiConfig {
-                executable: "/missing/pi".into(),
-                ..Default::default()
-            })),
-            Box::new(crate::claude::Claude::new(crate::claude::ClaudeConfig {
-                executable: "/missing/claude".into(),
-                ..Default::default()
-            })),
+            Box::new(crate::providers::pi::Pi::new(
+                crate::providers::pi::PiConfig {
+                    executable: "/missing/pi".into(),
+                    ..Default::default()
+                },
+            )),
+            Box::new(crate::providers::claude::Claude::new(
+                crate::providers::claude::ClaudeConfig {
+                    executable: "/missing/claude".into(),
+                    ..Default::default()
+                },
+            )),
         ];
         let settings = session::Settings {
-            permissions: Some(Configuration::Codex(crate::codex::Permissions::default())),
+            permissions: Some(Configuration::Codex(
+                crate::providers::codex::Permissions::default(),
+            )),
             ..Default::default()
         };
         for provider in providers {

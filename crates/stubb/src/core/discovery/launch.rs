@@ -7,7 +7,7 @@ pub struct Launch {
     /// user's login shell.
     pub program: PathBuf,
     pub args: Vec<String>,
-    /// Variables set for the agent, over its [`crate::acp::AcpConfig::environment`].
+    /// Variables set for the agent, over its [`crate::providers::acp::AcpConfig::environment`].
     pub env: Vec<(String, String)>,
     /// The folder the agent starts in; by default, the session's folder.
     pub cwd: Option<PathBuf>,

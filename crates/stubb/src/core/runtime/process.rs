@@ -16,7 +16,7 @@ use std::ffi::{OsStr, OsString};
 use tokio::process::Command;
 
 /// The environment an agent process starts with, set per provider (for
-/// example [`CodexConfig::environment`](crate::codex::CodexConfig::environment)).
+/// example [`CodexConfig::environment`](crate::providers::codex::CodexConfig::environment)).
 ///
 /// [`Environment::inherit`], the default, passes the host's whole
 /// environment. [`Environment::only`] starts from an empty one and passes

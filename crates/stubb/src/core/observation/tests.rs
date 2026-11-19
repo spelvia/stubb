@@ -143,7 +143,7 @@ async fn unimplemented_observation_returns_typed_errors_without_execution() {
     ));
 
     // No executable exists; these defaults must not attempt a CLI launch.
-    let provider = crate::pi::Pi::new(crate::pi::PiConfig {
+    let provider = crate::providers::pi::Pi::new(crate::providers::pi::PiConfig {
         executable: "/nonexistent/stubb-contract-test".into(),
         ..Default::default()
     });

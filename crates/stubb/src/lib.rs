@@ -19,11 +19,8 @@
 //! [`send`](Session::send) messages. The `examples` directory has runnable
 //! programs for each step: `models`, `sessions`, and `chat`.
 
-pub mod acp;
-pub mod claude;
-pub mod codex;
 mod core;
-pub mod pi;
+pub mod providers;
 
 pub use core::catalog::Catalog;
 pub use core::discovery::{probe, profile, registry, update};

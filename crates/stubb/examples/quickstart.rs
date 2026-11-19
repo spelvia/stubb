@@ -5,7 +5,7 @@
 //! cargo run --example quickstart
 //! ```
 
-use stubb::claude::{Claude, ClaudeConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
 use stubb::{session, turn};
 use tokio::sync::broadcast::error::RecvError;
 

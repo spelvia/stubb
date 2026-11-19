@@ -34,7 +34,7 @@ Start a Claude Code session in the current directory, send a message, and print
 the reply as it streams:
 
 ```rust
-use stubb::claude::{Claude, ClaudeConfig};
+use stubb::providers::claude::{Claude, ClaudeConfig};
 use stubb::{session, turn};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -79,7 +79,7 @@ async fn main() -> stubb::Result<()> {
 }
 ```
 
-Swap in `stubb::codex::Codex`, `stubb::pi::Pi`, or `stubb::acp::AcpProvider` to
+Swap in `stubb::providers::codex::Codex`, `stubb::providers::pi::Pi`, or `stubb::providers::acp::AcpProvider` to
 use another agent. Every provider implements the same `stubb::Provider` trait.
 
 ## Supported agents
@@ -91,7 +91,7 @@ use another agent. Every provider implements the same `stubb::Provider` trait.
 | Pi | `pi` | RPC |
 | Any ACP agent | Configured per agent, for example `npx -y @google/gemini-cli --acp` | ACP v1 (JSON-RPC over stdio) |
 
-ACP agents are configured at run time with `stubb::acp::AcpProvider`. The
+ACP agents are configured at run time with `stubb::providers::acp::AcpProvider`. The
 `stubb::registry` module reads the official [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 (a copy is bundled for offline use) and turns an entry into the command that
 starts it. Stubb never downloads anything itself.

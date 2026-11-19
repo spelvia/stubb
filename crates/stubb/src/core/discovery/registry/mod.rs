@@ -4,7 +4,7 @@
 //! at [`INDEX_URL`]. Each [`Entry`] names an agent and how it is
 //! distributed: as a per-platform binary archive, as an npm package run
 //! with `npx`, or as a Python package run with `uvx`. Stubb parses the file
-//! and turns an entry into an [`acp::Launch`](crate::acp::Launch); it does
+//! and turns an entry into an [`acp::Launch`](crate::providers::acp::Launch); it does
 //! not download anything. A host fetches the registry and any archive
 //! itself, checks the archive's SHA-256 and unpacks it into an install
 //! folder (for example [`Entry::install_dir`]). [`Registry::bundled`] is a

@@ -35,9 +35,9 @@ impl Harness {
     /// Stubb's provider identifier, as [`crate::Provider::id`] reports it.
     pub fn id(self) -> &'static str {
         match self {
-            Harness::Claude => crate::claude::PROVIDER_ID,
-            Harness::Codex => crate::codex::PROVIDER_ID,
-            Harness::Pi => crate::pi::PROVIDER_ID,
+            Harness::Claude => crate::providers::claude::PROVIDER_ID,
+            Harness::Codex => crate::providers::codex::PROVIDER_ID,
+            Harness::Pi => crate::providers::pi::PROVIDER_ID,
         }
     }
 
@@ -123,9 +123,9 @@ pub async fn probe(harness: Harness, executable: Option<&Path>) -> Report {
         }
     };
     let auth = match harness {
-        Harness::Claude => crate::claude::probe::auth(&path).await,
-        Harness::Codex => crate::codex::probe::auth(&path).await,
-        Harness::Pi => crate::pi::probe::auth(&path).await,
+        Harness::Claude => crate::providers::claude::probe::auth(&path).await,
+        Harness::Codex => crate::providers::codex::probe::auth(&path).await,
+        Harness::Pi => crate::providers::pi::probe::auth(&path).await,
     };
     let (auth, auth_detail) = auth;
     Report {

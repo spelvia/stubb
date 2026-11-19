@@ -2,7 +2,7 @@
 //!
 //! cargo run --example permissions
 
-use stubb::codex::{ApprovalPolicy, Codex, CodexConfig, Permissions, Sandbox};
+use stubb::providers::codex::{ApprovalPolicy, Codex, CodexConfig, Permissions, Sandbox};
 use stubb::{permission, session};
 
 #[tokio::main]

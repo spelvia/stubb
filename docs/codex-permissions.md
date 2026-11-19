@@ -3,7 +3,7 @@
 Pass `session::Settings::permissions` when starting or resuming a session:
 
 ```rust
-use stubb::codex::{ApprovalPolicy, Permissions, Sandbox};
+use stubb::providers::codex::{ApprovalPolicy, Permissions, Sandbox};
 use stubb::{permission, session};
 
 let settings = session::Settings {

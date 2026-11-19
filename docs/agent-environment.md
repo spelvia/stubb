@@ -23,7 +23,7 @@ configuration says which environment those processes start with:
   `$HOME/.claude`.
 
 ```rust
-use stubb::codex::{Codex, CodexConfig};
+use stubb::providers::codex::{Codex, CodexConfig};
 use stubb::process::Environment;
 
 let codex = Codex::new(CodexConfig {
