@@ -30,14 +30,17 @@ Create a GitHub environment named `release` in
 `spelvia/stubb` and restrict deployment to release tags. Limit who can create or
 modify release tags using a repository ruleset.
 
-For the first version only, create a short-lived crates.io token scoped to
-`publish-new` and the exact crate name `stubb`. Store it in the release
-environment as `CRATES_IO_FIRST_PUBLISH_TOKEN`.
+crates.io accepts Trusted Publishing only for crates that already exist, so the
+first upload needs one token. Create a crates.io token with the `publish-new`
+scope, the crate pattern `stubb`, and a 7-day expiry. Store it in the `release`
+environment as `CRATES_IO_FIRST_PUBLISH_TOKEN`. The workflow uses it only while
+`stubb` is absent from crates.io.
 
-After RC1 appears on crates.io, register a GitHub trusted publisher in the
-crate settings with owner `spelvia`, repository `stubb`, workflow `release.yml`,
-and environment `release`. Revoke the first-publish token and delete the
-environment secret. Subsequent tags obtain a temporary token through OIDC.
+After the first version appears on crates.io, register a GitHub trusted
+publisher in the crate settings with owner `spelvia`, repository `stubb`,
+workflow `release.yml`, and environment `release`. Then delete the environment
+secret and revoke the token. Every later tag obtains a 30-minute token through
+OIDC. The workflow itself needs no change.
 
 ## Recover a release
 
