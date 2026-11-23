@@ -317,7 +317,8 @@ pub struct Usage {
     /// counted here.
     pub last: TokenCount,
     /// Every model call since this live session started. Resuming a session
-    /// starts the count again.
+    /// starts the count again. ACP agents only report how full the context
+    /// is, so for them this equals `last` and falls after a compaction.
     pub total: TokenCount,
     pub context_window: Option<i64>,
 }

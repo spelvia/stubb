@@ -36,8 +36,9 @@ pub(super) struct SessionState {
     /// Every call of earlier turns, as their `result`s reported them.
     total: turn::TokenCount,
     /// The streaming call's usage from its `message_start`, for counts its
-    /// `message_delta` leaves out.
+    /// `message_delta`s leave out, and the usage last reported for it.
     call_start: Option<Value>,
+    call: Option<turn::TokenCount>,
     /// This turn's calls so far, and the latest of them.
     turn_calls: turn::TokenCount,
     last_call: Option<turn::TokenCount>,
@@ -222,15 +223,17 @@ impl SessionState {
                     .get("message")
                     .and_then(|message| message.get("usage"))
                     .cloned();
+                self.call = None;
                 Vec::new()
             }
-            Some("message_delta") => {
-                let start = self.call_start.take();
-                match event.get("usage") {
-                    Some(usage) => self.model_call(token_count(usage, start.as_ref())),
-                    None => Vec::new(),
+            // A message may have several, each with its call's usage so far.
+            Some("message_delta") => match event.get("usage") {
+                Some(usage) => {
+                    let count = token_count(usage, self.call_start.as_ref());
+                    self.model_call(count)
                 }
-            }
+                None => Vec::new(),
+            },
             Some("content_block_start") => {
                 let block = event.get("content_block").unwrap_or(&Value::Null);
                 let item_id = format!("{}:{index}", self.message_id.as_deref().unwrap_or(""));
@@ -433,10 +436,14 @@ impl SessionState {
         events
     }
 
-    /// A main-agent model call finished.
+    /// A main-agent model call's usage so far; it replaces what the same
+    /// call reported before.
     fn model_call(&mut self, last: turn::TokenCount) -> Vec<Event> {
         if last.total == 0 {
             return Vec::new();
+        }
+        if let Some(earlier) = self.call.replace(last) {
+            self.turn_calls = subtract(self.turn_calls, earlier);
         }
         self.last_call = Some(last);
         self.turn_calls = add(self.turn_calls, last);
@@ -588,13 +595,17 @@ impl SessionState {
 
 /// Claude's usage block as a token count. Input includes cache reads and
 /// writes, so `input` plus `output` is the context the call used. Counts
-/// missing from `usage` are taken from `fallback`.
+/// missing or `null` in `usage` are taken from `fallback`.
 fn token_count(usage: &Value, fallback: Option<&Value>) -> turn::TokenCount {
     let count = |key: &str| {
         usage
             .get(key)
-            .or_else(|| fallback.and_then(|fallback| fallback.get(key)))
             .and_then(Value::as_i64)
+            .or_else(|| {
+                fallback
+                    .and_then(|fallback| fallback.get(key))
+                    .and_then(Value::as_i64)
+            })
             .unwrap_or(0)
     };
     let cached = count("cache_read_input_tokens");
@@ -616,6 +627,16 @@ fn add(a: turn::TokenCount, b: turn::TokenCount) -> turn::TokenCount {
         output: a.output + b.output,
         reasoning_output: a.reasoning_output + b.reasoning_output,
         total: a.total + b.total,
+    }
+}
+
+fn subtract(a: turn::TokenCount, b: turn::TokenCount) -> turn::TokenCount {
+    turn::TokenCount {
+        input: a.input - b.input,
+        cached_input: a.cached_input - b.cached_input,
+        output: a.output - b.output,
+        reasoning_output: a.reasoning_output - b.reasoning_output,
+        total: a.total - b.total,
     }
 }
 
@@ -886,5 +907,30 @@ mod tests {
             matches!(&cancelled[..], [Event::Compaction { compaction, .. }]
             if compaction.status == turn::CompactionStatus::Cancelled)
         );
+    }
+
+    #[test]
+    fn a_call_with_several_deltas_counts_once() {
+        let mut handler = SessionState::default();
+        handler.turn_started("t1", "hi");
+        stream(
+            &mut handler,
+            json!({ "type": "message_start", "message": { "id": "m1",
+            "usage": { "input_tokens": 100, "cache_read_input_tokens": 900, "output_tokens": 1 } } }),
+        );
+        // Counts a delta leaves out or sends as null come from `message_start`.
+        let first = stream(
+            &mut handler,
+            json!({ "type": "message_delta",
+            "usage": { "input_tokens": null, "output_tokens": 5 } }),
+        );
+        assert!(matches!(&first[..], [Event::Usage { usage, .. }]
+            if usage.last.total == 1005 && usage.total.total == 1005));
+        let second = stream(
+            &mut handler,
+            json!({ "type": "message_delta", "usage": { "output_tokens": 10 } }),
+        );
+        assert!(matches!(&second[..], [Event::Usage { usage, .. }]
+            if usage.last.total == 1010 && usage.total.total == 1010));
     }
 }
