@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use agent_client_protocol::schema::MaybeUndefined;
 use agent_client_protocol::v1::schema as wire;
 use serde_json::Value;
 
@@ -333,9 +334,38 @@ fn tool_status(status: Option<&wire::ToolCallStatus>, declined: bool) -> ToolSta
     }
 }
 
+/// A `compaction` update, unless it leaves the compaction's status as it was
+/// last reported.
+pub(in crate::providers::acp) fn compaction(
+    turn_id: Option<String>,
+    update: &wire::CompactionUpdate,
+    reported: &mut HashMap<String, turn::CompactionStatus>,
+) -> Option<session::Event> {
+    let status = match &update.status {
+        wire::CompactionStatus::InProgress => turn::CompactionStatus::InProgress,
+        wire::CompactionStatus::Completed => turn::CompactionStatus::Completed,
+        wire::CompactionStatus::Failed => turn::CompactionStatus::Failed,
+        wire::CompactionStatus::Cancelled => turn::CompactionStatus::Cancelled,
+        _ => turn::CompactionStatus::Unknown,
+    };
+    let id = update.compaction_id.0.to_string();
+    if reported.insert(id.clone(), status) == Some(status) {
+        return None;
+    }
+    let mut compaction = turn::Compaction::new(status);
+    compaction.id = Some(id);
+    if let MaybeUndefined::Value(error) = &update.error {
+        compaction.error = Some(error.clone());
+    }
+    Some(session::Event::Compaction {
+        turn_id,
+        compaction,
+    })
+}
+
 /// ACP's context window report. `used` tokens are in the context now, so
 /// they are both the last and the running count.
-fn context_usage(usage: &wire::UsageUpdate) -> turn::Usage {
+pub(in crate::providers::acp) fn context_usage(usage: &wire::UsageUpdate) -> turn::Usage {
     let used = i64::try_from(usage.used).unwrap_or(i64::MAX);
     let count = turn::TokenCount {
         input: used,

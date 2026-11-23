@@ -28,13 +28,17 @@ pub(super) fn from_notification(method: &str, params: Value) -> Event {
                 ..history::turn(n.turn)
             },
         }),
-        "item/started" => decode::<types::ItemNotification>(&params).map(|n| Event::ItemStart {
-            turn_id: n.turn_id,
-            item: history::item(n.item),
+        "item/started" => decode::<types::ItemNotification>(&params).map(|n| {
+            compaction(&n, turn::CompactionStatus::InProgress).unwrap_or(Event::ItemStart {
+                turn_id: n.turn_id,
+                item: history::item(n.item),
+            })
         }),
-        "item/completed" => decode::<types::ItemNotification>(&params).map(|n| Event::ItemEnd {
-            turn_id: n.turn_id,
-            item: history::item(n.item),
+        "item/completed" => decode::<types::ItemNotification>(&params).map(|n| {
+            compaction(&n, turn::CompactionStatus::Completed).unwrap_or(Event::ItemEnd {
+                turn_id: n.turn_id,
+                item: history::item(n.item),
+            })
         }),
         "item/agentMessage/delta" => {
             decode::<types::DeltaNotification>(&params).map(|n| Event::ItemDelta {
@@ -123,6 +127,21 @@ pub(super) fn decline_request(id: &Value, method: &str, params: &Value) -> (Valu
 
 fn decode<T: DeserializeOwned>(params: &Value) -> Option<T> {
     serde_json::from_value(params.clone()).ok()
+}
+
+/// Codex reports a compaction as a `contextCompaction` item that starts and
+/// completes. Its deprecated `thread/compacted` notification repeats the end
+/// and stays [`Event::Raw`].
+fn compaction(n: &types::ItemNotification, status: turn::CompactionStatus) -> Option<Event> {
+    if n.item.get("type").and_then(Value::as_str) != Some("contextCompaction") {
+        return None;
+    }
+    let mut compaction = turn::Compaction::new(status);
+    compaction.id = n.item.get("id").and_then(Value::as_str).map(str::to_owned);
+    Some(Event::Compaction {
+        turn_id: Some(n.turn_id.clone()),
+        compaction,
+    })
 }
 
 fn token_count(usage: &types::TokenUsageBreakdown) -> turn::TokenCount {
@@ -255,5 +274,25 @@ mod tests {
         assert!(
             matches!(event, Event::RequestDeclined { summary: Some(command), .. } if command == "rm -rf /")
         );
+    }
+
+    /// Shapes from Codex 0.170's app-server schema.
+    #[test]
+    fn compaction_items_become_compaction_events() {
+        let started = from_notification(
+            "item/started",
+            json!({ "threadId": "th", "turnId": "t1", "item": { "type": "contextCompaction", "id": "c1" } }),
+        );
+        assert!(
+            matches!(started, Event::Compaction { turn_id: Some(turn), compaction }
+            if turn == "t1" && compaction.id.as_deref() == Some("c1")
+                && compaction.status == turn::CompactionStatus::InProgress)
+        );
+        let completed = from_notification(
+            "item/completed",
+            json!({ "threadId": "th", "turnId": "t1", "item": { "type": "contextCompaction", "id": "c1" } }),
+        );
+        assert!(matches!(completed, Event::Compaction { compaction, .. }
+            if compaction.status == turn::CompactionStatus::Completed));
     }
 }

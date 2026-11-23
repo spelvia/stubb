@@ -312,11 +312,82 @@ pub struct TokenCount {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
-    /// The most recent model call.
+    /// The main agent's most recent model call. Its `input` plus `output` is
+    /// how much of the context window is in use; sub-agents' calls are not
+    /// counted here.
     pub last: TokenCount,
-    /// The whole session so far.
+    /// Every model call since this live session started. Resuming a session
+    /// starts the count again. ACP agents only report how full the context
+    /// is, so for them this equals `last` and falls after a compaction.
     pub total: TokenCount,
     pub context_window: Option<i64>,
+}
+
+/// A context compaction: the agent replaced older parts of the conversation
+/// with a summary to free context window.
+///
+/// Reported as it starts ([`CompactionStatus::InProgress`]) and again when it
+/// ends; agents that only report the end send that alone. Fields the agent
+/// does not report are `None`. After a completed compaction, the next
+/// [`Usage`] reflects the smaller context; `tokens_after` gives it earlier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct Compaction {
+    /// The agent's ID for this compaction, when it has one. Start and end
+    /// carry the same ID.
+    pub id: Option<String>,
+    pub status: CompactionStatus,
+    pub trigger: Option<CompactionTrigger>,
+    /// Tokens in context before the compaction.
+    pub tokens_before: Option<i64>,
+    /// Tokens in context after it; some agents only estimate this.
+    pub tokens_after: Option<i64>,
+    /// Why it failed.
+    pub error: Option<String>,
+}
+
+impl Compaction {
+    pub(crate) fn new(status: CompactionStatus) -> Self {
+        Self {
+            id: None,
+            status,
+            trigger: None,
+            tokens_before: None,
+            tokens_after: None,
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub enum CompactionStatus {
+    InProgress,
+    Completed,
+    Failed,
+    Cancelled,
+    /// A status this version of Stubb does not know (deserialization only).
+    #[serde(other)]
+    Unknown,
+}
+
+/// What started a compaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub enum CompactionTrigger {
+    /// Someone asked for it, for example with `/compact`.
+    Manual,
+    /// The context was nearly full.
+    Auto,
+    /// A model call failed because the context was full; the agent compacts
+    /// and retries.
+    Overflow,
+    /// A trigger this version of Stubb does not know (deserialization only).
+    #[serde(other)]
+    Unknown,
 }
 
 #[cfg(test)]
