@@ -166,6 +166,35 @@ async fn scenario(fake: Arc<Fake>, cx: AgentCx, text: String) -> wire::StopReaso
                 wire::StopReason::EndTurn
             }
         }
+        ["compact"] => {
+            let compaction = |status: &str| {
+                update(
+                    json!({ "sessionUpdate": "compaction_update", "compactionId": "c1", "status": status }),
+                )
+            };
+            notify(&cx, compaction("in_progress"));
+            // A patch that leaves the status as it was.
+            notify(
+                &cx,
+                update(
+                    json!({ "sessionUpdate": "compaction_update", "compactionId": "c1",
+                    "status": "in_progress", "summary": [] }),
+                ),
+            );
+            notify(
+                &cx,
+                update(
+                    json!({ "sessionUpdate": "compaction_summary_chunk", "compactionId": "c1",
+                    "content": { "type": "text", "text": "Earlier: listed files." } }),
+                ),
+            );
+            notify(&cx, compaction("completed"));
+            notify(
+                &cx,
+                update(json!({ "sessionUpdate": "usage_update", "used": 10, "size": 1000 })),
+            );
+            wire::StopReason::EndTurn
+        }
         ["wait"] => {
             let cancelled = fake.cancelled.notified();
             notify(&cx, chunk("agent_message_chunk", "Working"));
@@ -215,6 +244,12 @@ async fn serve(fake: Arc<Fake>, stream: tokio::io::DuplexStream) {
             async |request: wire::InitializeRequest, responder, _cx| {
                 assert!(request.client_capabilities.fs.read_text_file);
                 assert!(!request.client_capabilities.terminal);
+                assert!(
+                    request
+                        .client_capabilities
+                        .session
+                        .is_some_and(|session| session.compaction.is_some())
+                );
                 responder.respond(
                     serde_json::from_value(json!({
                         "protocolVersion": 1,
@@ -566,6 +601,42 @@ async fn a_prompt_turn_streams_messages_and_tool_calls() {
     assert_eq!(session.modes().unwrap().current, "code");
     let prompt = fake.seen.lock().unwrap().prompts[0].clone();
     assert_eq!(prompt, json!([{ "type": "text", "text": "hello" }]));
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn compactions_are_reported_once_per_status() {
+    let fake = Arc::new(Fake::default());
+    let session = provider(&fake)
+        .start_session(spec(session::Settings::default()))
+        .await
+        .unwrap();
+    let mut events = session.subscribe();
+    let receipt = session.send(turn::Input::text("compact")).await.unwrap();
+    let events = turn_events(&mut events).await;
+    let compactions: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Compaction {
+                turn_id,
+                compaction,
+            } => Some((turn_id.clone(), compaction.id.clone(), compaction.status)),
+            _ => None,
+        })
+        .collect();
+    let turn = Some(receipt.turn_id.clone());
+    let id = Some("c1".to_owned());
+    assert_eq!(
+        compactions,
+        [
+            (turn.clone(), id.clone(), turn::CompactionStatus::InProgress),
+            (turn, id, turn::CompactionStatus::Completed),
+        ]
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Usage { usage, .. } if usage.last.total == 10
+    )));
     session.close().await.unwrap();
 }
 

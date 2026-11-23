@@ -59,6 +59,12 @@ pub enum Event {
     ItemEnd { turn_id: String, item: turn::Item },
     /// Token usage after a model call.
     Usage { turn_id: String, usage: turn::Usage },
+    /// The agent started or finished compacting its context. `turn_id` is
+    /// `None` when it happened outside a turn.
+    Compaction {
+        turn_id: Option<String>,
+        compaction: turn::Compaction,
+    },
     /// The agent reported an error. While `retrying`, the turn continues.
     Error {
         turn_id: Option<String>,

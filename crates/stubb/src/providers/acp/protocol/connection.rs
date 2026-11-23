@@ -28,6 +28,7 @@ use crate::process::Environment;
 use crate::providers::acp::Launch;
 use crate::request::{self, Decision};
 use crate::session::{self, CloseReason};
+use crate::turn;
 use crate::{Error, Result};
 
 const EVENT_BUFFER: usize = 1024;
@@ -117,7 +118,11 @@ impl Connection {
             .fs(wire::FileSystemCapabilities::new()
                 .read_text_file(true)
                 .write_text_file(true))
-            .terminal(false);
+            .terminal(false)
+            .session(
+                wire::ClientSessionCapabilities::new()
+                    .compaction(wire::CompactionCapabilities::new()),
+            );
         let request =
             wire::InitializeRequest::new(agent_client_protocol::schema::ProtocolVersion::V1)
                 .client_capabilities(capabilities)
@@ -405,6 +410,9 @@ struct Inner {
     /// The session's folder, then folders it may only read.
     roots: Vec<PathBuf>,
     turn: Option<Turn>,
+    /// Each compaction's status as last reported, so a patch that leaves it
+    /// unchanged (a summary chunk, metadata) is not reported again.
+    compactions: HashMap<String, turn::CompactionStatus>,
     config_options: Vec<wire::SessionConfigOption>,
     modes: Option<wire::SessionModeState>,
     pending: HashMap<String, Pending>,
@@ -562,9 +570,20 @@ impl State {
                 }
                 _ => {}
             }
-            match inner.turn.as_mut() {
-                Some(turn) => turn.update(&notification.update),
-                None => events::raw(&notification.update).into_iter().collect(),
+            let turn_id = inner.turn.as_ref().map(|turn| turn.id.clone());
+            match (&notification.update, inner.turn.as_mut()) {
+                // Compactions and context size are not tied to a turn.
+                (wire::SessionUpdate::CompactionUpdate(update), _) => {
+                    events::compaction(turn_id, update, &mut inner.compactions)
+                        .into_iter()
+                        .collect()
+                }
+                (wire::SessionUpdate::UsageUpdate(usage), None) => vec![session::Event::Usage {
+                    turn_id: String::new(),
+                    usage: events::context_usage(usage),
+                }],
+                (update, Some(turn)) => turn.update(update),
+                (update, None) => events::raw(update).into_iter().collect(),
             }
         };
         for event in events {

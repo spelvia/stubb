@@ -91,6 +91,45 @@ impl SessionState {
         }]
     }
 
+    /// `compaction_start` and `compaction_end`. The end has the result when
+    /// it succeeded; `tokensBefore` is measured and `estimatedTokensAfter`
+    /// estimated.
+    fn compaction(&self, kind: &str, record: &Value) -> Event {
+        let status = if kind == "compaction_start" {
+            turn::CompactionStatus::InProgress
+        } else if record.get("result").is_some_and(Value::is_object) {
+            turn::CompactionStatus::Completed
+        } else if record.get("aborted").and_then(Value::as_bool) == Some(true) {
+            turn::CompactionStatus::Cancelled
+        } else {
+            turn::CompactionStatus::Failed
+        };
+        let mut compaction = turn::Compaction::new(status);
+        compaction.trigger =
+            record
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(|reason| match reason {
+                    "manual" => turn::CompactionTrigger::Manual,
+                    "threshold" => turn::CompactionTrigger::Auto,
+                    "overflow" => turn::CompactionTrigger::Overflow,
+                    _ => turn::CompactionTrigger::Unknown,
+                });
+        let result = record.get("result").unwrap_or(&Value::Null);
+        compaction.tokens_before = result.get("tokensBefore").and_then(Value::as_i64);
+        compaction.tokens_after = result.get("estimatedTokensAfter").and_then(Value::as_i64);
+        if status == turn::CompactionStatus::Failed {
+            compaction.error = record
+                .get("errorMessage")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        Event::Compaction {
+            turn_id: self.turn_id.clone(),
+            compaction,
+        }
+    }
+
     /// One session event from Pi's stdout.
     pub(super) fn event(&mut self, record: &Value) -> Vec<Event> {
         let kind = record.get("type").and_then(Value::as_str).unwrap_or("");
@@ -130,6 +169,7 @@ impl SessionState {
             "tool_execution_start" => self.tool_start(record),
             "tool_execution_update" => self.tool_update(record),
             "tool_execution_end" => self.tool_end(record),
+            "compaction_start" | "compaction_end" => vec![self.compaction(kind, record)],
             "auto_retry_start" => vec![Event::Error {
                 turn_id: self.turn_id.clone(),
                 message: text(record, "errorMessage").to_owned(),
@@ -583,7 +623,39 @@ mod tests {
     #[test]
     fn unknown_events_pass_through() {
         let mut state = SessionState::default();
-        let raw = state.event(&json!({ "type": "compaction_start", "reason": "threshold" }));
-        assert!(matches!(&raw[0], Event::Raw { name, .. } if name == "pi/compaction_start"));
+        let raw = state.event(&json!({ "type": "queue_update", "steering": [], "followUp": [] }));
+        assert!(matches!(&raw[0], Event::Raw { name, .. } if name == "pi/queue_update"));
+    }
+
+    /// Shapes from Pi 1.5.2's `docs/json.md`.
+    #[test]
+    fn compactions() {
+        let mut state = SessionState::default();
+        let start = state.event(&json!({ "type": "compaction_start", "reason": "threshold" }));
+        assert!(
+            matches!(&start[..], [Event::Compaction { turn_id: None, compaction }]
+            if compaction.status == turn::CompactionStatus::InProgress
+                && compaction.trigger == Some(turn::CompactionTrigger::Auto))
+        );
+        let end = state.event(&json!({ "type": "compaction_end", "reason": "threshold", "aborted": false, "willRetry": false,
+            "result": { "summary": "…", "firstKeptEntryId": "e9", "tokensBefore": 120_000, "estimatedTokensAfter": 18_000 } }));
+        assert!(matches!(&end[..], [Event::Compaction { compaction, .. }]
+            if compaction.status == turn::CompactionStatus::Completed
+                && compaction.tokens_before == Some(120_000)
+                && compaction.tokens_after == Some(18_000)));
+        let aborted = state.event(&json!({ "type": "compaction_end", "reason": "manual", "aborted": true, "willRetry": false }));
+        assert!(
+            matches!(&aborted[..], [Event::Compaction { compaction, .. }]
+            if compaction.status == turn::CompactionStatus::Cancelled
+                && compaction.trigger == Some(turn::CompactionTrigger::Manual))
+        );
+        let failed = state.event(
+            &json!({ "type": "compaction_end", "reason": "overflow", "aborted": false,
+            "willRetry": false, "errorMessage": "summary failed" }),
+        );
+        assert!(matches!(&failed[..], [Event::Compaction { compaction, .. }]
+            if compaction.status == turn::CompactionStatus::Failed
+                && compaction.trigger == Some(turn::CompactionTrigger::Overflow)
+                && compaction.error.as_deref() == Some("summary failed")));
     }
 }
