@@ -118,6 +118,14 @@ impl session::Driver for CodexSession {
         Box::pin(self.stop(crate::observation::control::Target::Task { id: id.into() }))
     }
 
+    fn task_output<'a>(
+        &'a self,
+        id: &'a str,
+        query: crate::observation::task::OutputQuery,
+    ) -> BoxFuture<'a, Result<crate::observation::task::OutputPage>> {
+        Box::pin(async move { self.attachment.task_output(id, query) })
+    }
+
     fn set_permissions(
         &self,
         configuration: crate::permission::Configuration,

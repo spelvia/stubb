@@ -7,7 +7,7 @@ use super::{Codex, provider, types};
 use crate::{Error, Result, observation::agent, turn};
 use provider::PAGE_LIMIT;
 
-const SOURCES: [&str; 5] = [
+pub(super) const SOURCES: [&str; 5] = [
     "subAgent",
     "subAgentReview",
     "subAgentCompact",
@@ -47,7 +47,7 @@ fn encode(cursor: &Cursor) -> String {
         serde_json::to_string(cursor).expect("cursor serialization")
     )
 }
-fn limit(limit: Option<u32>) -> Result<u32> {
+pub(super) fn limit(limit: Option<u32>) -> Result<u32> {
     if limit == Some(0) {
         return Err(Error::InvalidSetting {
             setting: "limit",
@@ -101,7 +101,7 @@ pub(super) fn summary(thread: &types::Thread, root: &str) -> agent::Summary {
 }
 
 impl Codex {
-    async fn agent_thread(&self, id: &str) -> Result<types::Thread> {
+    pub(super) async fn agent_thread(&self, id: &str) -> Result<types::Thread> {
         let response: types::ThreadReadResponse = self
             .request("thread/read", &types::ThreadIdParams { thread_id: id })
             .await
@@ -109,7 +109,7 @@ impl Codex {
         Ok(response.thread)
     }
 
-    async fn membership(&self, root: &str, id: &str) -> Result<()> {
+    pub(super) async fn membership(&self, root: &str, id: &str) -> Result<()> {
         if id == root {
             return Ok(());
         }

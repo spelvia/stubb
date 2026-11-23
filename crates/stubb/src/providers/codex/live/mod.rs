@@ -161,11 +161,19 @@ fn capabilities() -> obs::Capabilities {
         gaps: vec!["Stored discovery on resume is bounded to 5000 native descendants; gaps are reported".into(), "Early traffic buffering is bounded; transcript gaps are reported as raw observationGap events".into()],
     };
     let tasks = obs::Feature {
-        support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+        support: obs::Support::Supported,
+        coverage: obs::Coverage::Partial,
         reason: Some("Read-only running-terminal polling and live command events".into()),
-        gaps: vec!["Commands that finish between polls may never appear as background tasks".into(),
+        gaps: vec![
+            "Commands that finish between polls may never appear as background tasks".into(),
             "List absence does not establish an outcome; final command events are required".into(),
-            "Output is delivered through attributed command items and deltas; no output replay or stored task history".into()],
+        ],
+    };
+    let output = obs::Feature {
+        support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+        reason: Some("Bounded reads of command output retained from attributed command items and deltas".into()),
+        gaps: vec![format!("Only the last {} MiB of each task's output is retained; earlier output is reported as partial", super::output::RETAINED >> 20),
+            "Output produced before the attachment saw the command start is missing unless the final command item carries it".into()],
     };
     obs::Capabilities {
         records: live.clone(),
@@ -183,9 +191,14 @@ fn capabilities() -> obs::Capabilities {
             gaps: vec!["Only native persisted threads are discoverable; unreported historical outcomes remain unknown".into()],
         },
         task_discovery: tasks.clone(),
-        task_lifecycle: tasks.clone(),
-        task_output: tasks,
-        task_history: unavailable.clone(),
+        task_lifecycle: tasks,
+        task_output: output,
+        task_history: obs::Feature {
+            support: obs::Support::Supported, coverage: obs::Coverage::Partial,
+            reason: Some("Read-only stored commands that outlived their turn, with their output, from native rollout files".into()),
+            gaps: vec!["Background commands that finished within their turn, or never finished, are not distinguishable in stored history".into(),
+                "Output is what Codex recorded when the command ended".into()],
+        },
         stop_agent: obs::Feature {
             support: obs::Support::Supported, coverage: obs::Coverage::Partial,
             reason: Some("Interrupts the captured active native turn; does not close agent contexts".into()),
