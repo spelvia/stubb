@@ -6,6 +6,15 @@
 //! and live sessions receive [`session::Event::Closed`](crate::session::Event::Closed). Once nothing has
 //! used it for [`CodexConfig::idle_timeout`], with no live session and no
 //! request waiting, it is closed, and the next call starts it again.
+//!
+//! Commands Codex keeps running in the background are a live session's
+//! tasks. [`Session::task_output`](crate::Session::task_output) reads what
+//! such a command printed, from the output Codex streamed to this
+//! attachment; the last MiB of each task is kept. Stored sessions list, as
+//! tasks, the commands that completed after their turn, read from the
+//! session's rollout files with
+//! [`Provider::list_tasks`](crate::Provider::list_tasks) and
+//! [`Provider::task_output`](crate::Provider::task_output).
 
 mod agents;
 mod events;
@@ -13,6 +22,7 @@ mod events;
 mod fixtures;
 mod history;
 mod live;
+mod output;
 mod permissions;
 pub(crate) mod probe;
 pub use permissions::{
@@ -31,6 +41,7 @@ mod cli;
 pub use cli::CLI;
 mod driver;
 mod provider;
+mod stored_tasks;
 mod transport;
 use transport::{connection, types};
 

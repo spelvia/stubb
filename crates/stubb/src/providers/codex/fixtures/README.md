@@ -31,3 +31,10 @@ evidence that the harness manages it.
 
 `mod.rs` tests native decoding and mapping against this capture. Recursive
 routing, task state, and stop controls are tested alongside `codex/live/`.
+
+`codex-rollout-0.170.0.jsonl` is a small native rollout file in the format
+Codex 0.170.0 writes to `~/.codex/sessions`. It was written by hand after
+real rollouts, keeping their record shapes but not their content. A command
+item recorded after its turn's `task_complete` or `turn_aborted` outlived
+that turn: Stubb lists those as stored tasks. Commands that completed within
+their turn, items of another thread, and a malformed line are left out.

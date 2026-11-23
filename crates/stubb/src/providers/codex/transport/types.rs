@@ -159,6 +159,9 @@ pub(crate) struct Thread {
     pub agent_nickname: Option<String>,
     #[serde(default)]
     pub agent_role: Option<String>,
+    /// The thread's native rollout file, if it has one.
+    #[serde(default)]
+    pub path: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
