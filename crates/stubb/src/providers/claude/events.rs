@@ -688,6 +688,38 @@ mod tests {
     }
 
     #[test]
+    fn a_final_only_command_reply_is_visible_and_a_streamed_reply_is_not_repeated() {
+        let result = json!({"type":"result","subtype":"success","is_error":false,"result":"Done"});
+        let mut handler = SessionState::default();
+        handler.turn_started("first", "/command");
+        let replies = |events: &[Event]| {
+            events.iter().filter(|e| matches!(e, Event::ItemEnd {item: Item::AgentMessage {text,..},..} if text=="Done")).count()
+        };
+        assert_eq!(replies(&message(&mut handler, result.clone())), 1);
+        handler.turn_started("second", "/command");
+        stream(
+            &mut handler,
+            json!({"type":"message_start","message":{"id":"m1"}}),
+        );
+        stream(
+            &mut handler,
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"text"}}),
+        );
+        stream(
+            &mut handler,
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done"}}),
+        );
+        assert_eq!(
+            replies(&stream(
+                &mut handler,
+                json!({"type":"content_block_stop","index":0})
+            )),
+            1
+        );
+        assert_eq!(replies(&message(&mut handler, result)), 0);
+    }
+
+    #[test]
     fn maps_a_streamed_turn_with_a_tool_call() {
         let mut handler = SessionState::default();
         let started = handler.turn_started("t1", "list files");
