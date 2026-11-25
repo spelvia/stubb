@@ -145,6 +145,8 @@ fn print_item(item: &Item) {
                     .map(|change| change.path.display().to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
+                ToolDetail::McpCall(call) => format!("mcp {}.{}", call.server, call.tool),
+                // Events stored by Stubb before 0.1.1-rc.2.
                 ToolDetail::Mcp { server, tool, .. } => format!("mcp {server}.{tool}"),
                 ToolDetail::Other { name, .. } => name.clone(),
                 // Tool kinds added by later versions of Stubb.

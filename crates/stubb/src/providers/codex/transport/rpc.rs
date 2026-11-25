@@ -53,8 +53,15 @@ pub(in crate::providers::codex) trait Handler:
     /// Events for one notification about a registered session; may be none or several.
     fn notification(&self, method: &str, params: Value) -> Vec<session::Event>;
 
-    /// Reply to a request from the child, and an optional event for its session.
-    fn request(&self, id: &Value, method: &str, params: &Value) -> (Value, Option<session::Event>);
+    /// Reply to a request from the child, and an optional event for its
+    /// session. No reply means the provider answers later with
+    /// [`Connection::reply`].
+    fn request(
+        &self,
+        id: &Value,
+        method: &str,
+        params: &Value,
+    ) -> (Option<Value>, Option<session::Event>);
 
     /// Called when a session stops being routed, to drop per-session state.
     fn session_closed(&self, _session_id: &str) {}
@@ -221,6 +228,13 @@ impl Connection {
         })
     }
 
+    /// Answers a request the child sent, with its JSON-RPC `result`.
+    pub(in crate::providers::codex) async fn reply(&self, id: &Value, result: Value) -> Result<()> {
+        self.shared
+            .write(&json!({ "id": id, "result": result }))
+            .await
+    }
+
     pub(in crate::providers::codex) async fn notify(&self, method: &str) -> Result<()> {
         self.shared.write(&json!({ "method": method })).await
     }
@@ -311,7 +325,9 @@ impl Shared {
             (Some(id), Some(method)) => {
                 let params = params();
                 let (reply, event) = self.handler.request(id, method, &params);
-                let _ = self.write(&reply).await;
+                if let Some(reply) = reply {
+                    let _ = self.write(&reply).await;
+                }
                 if let Some(event) = event
                     && !self.handler.route_event(&params, &event)
                 {
@@ -420,9 +436,14 @@ mod tests {
                 payload: params,
             }]
         }
-        fn request(&self, id: &Value, method: &str, _: &Value) -> (Value, Option<session::Event>) {
+        fn request(
+            &self,
+            id: &Value,
+            method: &str,
+            _: &Value,
+        ) -> (Option<Value>, Option<session::Event>) {
             (
-                json!({"id": id, "result": {}}),
+                Some(json!({"id": id, "result": {}})),
                 Some(session::Event::RequestDeclined {
                     method: method.into(),
                     turn_id: None,

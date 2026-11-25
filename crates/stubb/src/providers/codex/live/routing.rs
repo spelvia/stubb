@@ -182,6 +182,16 @@ impl Router {
         }
     }
 
+    /// The live session a thread belongs to: itself, or the root of the
+    /// sub-agent tree it is part of.
+    pub(in crate::providers::codex) fn root(&self, thread_id: &str) -> Option<Arc<Attachment>> {
+        self.state
+            .lock()
+            .expect("routing lock")
+            .root_for(thread_id)
+            .cloned()
+    }
+
     pub(in crate::providers::codex) fn metadata(&self, thread: types::Thread) {
         let mut state = self.state.lock().expect("routing lock");
         state.metadata(thread);

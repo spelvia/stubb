@@ -202,12 +202,19 @@ impl Codex {
                 self.config.request_timeout,
             )
             .await?;
-        Ok(self.open(connection, response, false, spec.settings.permissions))
+        Ok(self.open(
+            connection,
+            response,
+            false,
+            spec.settings.permissions,
+            spec.settings.forward_requests,
+        ))
     }
 
     /// Loads a stored thread into the app-server so it can take new turns.
     pub async fn resume_session(&self, id: &str, settings: session::Settings) -> Result<Session> {
         let requested_permissions = settings.permissions.clone();
+        let forward_requests = settings.forward_requests;
         let settings = self.settings_params(&settings, false).await?;
         let connection = self.connection().await?;
         let response: types::ThreadSessionResponse = connection
@@ -236,6 +243,7 @@ impl Codex {
             response,
             true,
             requested_permissions,
+            forward_requests,
         );
         if let Err(error) = self.discover_stored(&connection, id).await {
             connection.discovery_failed(id, &error.to_string());
@@ -447,6 +455,7 @@ impl Codex {
         response: types::ThreadSessionResponse,
         restored: bool,
         requested_permissions: Option<crate::permission::Configuration>,
+        forward_requests: bool,
     ) -> Session {
         let fast_tier = self
             .catalog
@@ -492,6 +501,7 @@ impl Codex {
             summary: history::summary(response.thread),
         };
         let attachment = connection.observe(&info);
+        attachment.set_forward_requests(forward_requests);
         let driver = CodexSession {
             connection,
             thread_id,

@@ -383,6 +383,8 @@ pub(crate) struct McpToolCallItem {
     #[serde(default)]
     pub error: Option<Value>,
     #[serde(default)]
+    pub result: Option<Value>,
+    #[serde(default)]
     pub duration_ms: Option<i64>,
 }
 

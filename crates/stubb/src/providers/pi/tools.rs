@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::turn::{FileChange, FileChangeKind, ToolDetail};
+use crate::turn::{FileChange, FileChangeKind, McpCall, McpResult, ToolDetail};
 
 /// `result` is the tool's result: a live `tool_execution_end` result or a
 /// stored `toolResult` message. Both carry `content` and `details`.
@@ -44,12 +44,18 @@ pub(super) fn detail(name: &str, args: &Value, result: Option<&Value>, failed: b
             .strip_prefix("mcp__")
             .and_then(|rest| rest.split_once("__"))
         {
-            Some((server, tool)) => ToolDetail::Mcp {
-                server: server.to_owned(),
-                tool: tool.to_owned(),
-                arguments: args.clone(),
-                error: if failed { output } else { None },
-            },
+            Some((server, tool)) => {
+                let mut call = McpCall::new(server, tool, args.clone());
+                if failed {
+                    call.error = output;
+                } else if let Some(result) = result {
+                    let mut mcp =
+                        McpResult::from_content(result.get("content").unwrap_or(&Value::Null));
+                    mcp.structured_content = result.get("structuredContent").cloned();
+                    call.result = Some(mcp);
+                }
+                ToolDetail::McpCall(call)
+            }
             None => ToolDetail::Other {
                 name: name.to_owned(),
                 input: args.clone(),
@@ -126,7 +132,7 @@ mod tests {
         let failed = json!({ "content": [{ "type": "text", "text": "timeout" }] });
         assert!(matches!(
             detail("mcp__searxng__web_url_read", &json!({}), Some(&failed), true),
-            ToolDetail::Mcp { server, tool, error: Some(_), .. } if server == "searxng" && tool == "web_url_read"
+            ToolDetail::McpCall(call) if call.server == "searxng" && call.tool == "web_url_read" && call.error.is_some()
         ));
         assert!(matches!(
             detail("read", &json!({ "path": "a.rs" }), None, false),

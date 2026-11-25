@@ -25,6 +25,7 @@ mod live;
 mod output;
 mod permissions;
 pub(crate) mod probe;
+mod requests;
 pub use permissions::{
     ApprovalPolicy, EffectivePermissions, GranularApproval, Permissions, Sandbox, SandboxPolicy,
 };

@@ -352,7 +352,7 @@ impl SessionState {
             id: id.clone(),
             status: ToolStatus::InProgress,
             duration_ms: None,
-            detail: tools::detail(&name, &input, None),
+            detail: tools::detail(&name, &input, None, false),
         });
         self.tools.insert(id, (name, input));
         vec![Event::ItemStart {
@@ -422,14 +422,13 @@ impl SessionState {
             } else {
                 ToolStatus::Completed
             };
-            let output = block.get("content").and_then(tools::result_text);
             events.push(Event::ItemEnd {
                 turn_id: self.turn(),
                 item: Item::ToolCall(ToolCall {
                     id,
                     status,
                     duration_ms: None,
-                    detail: tools::detail(&name, &input, output),
+                    detail: tools::detail(&name, &input, block.get("content"), failed),
                 }),
             });
         }

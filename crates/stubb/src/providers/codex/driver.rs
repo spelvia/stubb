@@ -175,6 +175,40 @@ impl session::Driver for CodexSession {
         })
     }
 
+    fn respond<'a>(
+        &'a self,
+        request_id: &'a str,
+        decision: crate::request::Decision,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            let (pending, result) = self.attachment.answer(request_id, |pending| {
+                super::requests::result(request_id, pending, &decision)
+            })?;
+            self.connection.reply(&pending.native_id, result).await?;
+            self.attachment.emit(session::Event::RequestResolved {
+                id: request_id.to_owned(),
+                outcome: crate::request::Outcome::Answered {
+                    decision: decision.clone(),
+                },
+            });
+            if super::requests::interrupts(&pending, &decision)
+                && let Some(turn_id) = &pending.turn_id
+            {
+                self.connection
+                    .request::<_, Value>(
+                        "turn/interrupt",
+                        &types::TurnInterruptParams {
+                            thread_id: &pending.thread_id,
+                            turn_id,
+                        },
+                        self.request_timeout,
+                    )
+                    .await?;
+            }
+            Ok(())
+        })
+    }
+
     fn interrupt<'a>(&'a self, turn_id: &'a str) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             self.connection

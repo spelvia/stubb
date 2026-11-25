@@ -154,12 +154,17 @@ pub enum ToolDetail {
     FileChange {
         changes: Vec<FileChange>,
     },
+    /// An MCP tool call as Stubb reported it before 0.1.1-rc.2, without its
+    /// result. Stubb now reports [`ToolDetail::McpCall`]; this variant
+    /// remains so stored events still read.
     Mcp {
         server: String,
         tool: String,
         arguments: Value,
         error: Option<String>,
     },
+    /// A call to a tool of an MCP server, with its result.
+    McpCall(McpCall),
     /// Any other tool, identified by the provider's tool name.
     Other {
         name: String,
@@ -170,6 +175,81 @@ pub enum ToolDetail {
     /// (deserialization only).
     #[serde(untagged)]
     Unknown(Value),
+}
+
+/// A call to an MCP server's tool: [`ToolDetail::McpCall`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct McpCall {
+    pub server: String,
+    pub tool: String,
+    #[serde(default)]
+    pub arguments: Value,
+    /// What the tool returned, once it completed.
+    #[serde(default)]
+    pub result: Option<McpResult>,
+    /// Why the call failed.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl McpCall {
+    pub(crate) fn new(
+        server: impl Into<String>,
+        tool: impl Into<String>,
+        arguments: Value,
+    ) -> Self {
+        Self {
+            server: server.into(),
+            tool: tool.into(),
+            arguments,
+            result: None,
+            error: None,
+        }
+    }
+}
+
+/// The result of an [`McpCall`], as the MCP server returned it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct McpResult {
+    /// MCP content blocks, such as `{"type": "text", "text": "..."}` or
+    /// `{"type": "image", "data": "...", "mimeType": "image/png"}`.
+    #[serde(default)]
+    pub content: Vec<Value>,
+    /// The tool's structured result, when it returns one.
+    #[serde(default)]
+    pub structured_content: Option<Value>,
+}
+
+impl McpResult {
+    /// A result from tool-result content: a list of blocks, or a string,
+    /// which becomes one text block.
+    pub(crate) fn from_content(content: &Value) -> Self {
+        let content = match content {
+            Value::Array(blocks) => blocks.clone(),
+            Value::String(text) => vec![serde_json::json!({ "type": "text", "text": text })],
+            Value::Null => Vec::new(),
+            other => vec![other.clone()],
+        };
+        Self {
+            content,
+            structured_content: None,
+        }
+    }
+
+    /// The text of its text blocks, joined by newlines.
+    pub fn text(&self) -> Option<String> {
+        let text: Vec<&str> = self
+            .content
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect();
+        (!text.is_empty()).then(|| text.join("\n"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

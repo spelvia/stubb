@@ -119,6 +119,11 @@ impl Connection {
                 .read_text_file(true)
                 .write_text_file(true))
             .terminal(false)
+            .elicitation(
+                wire::ElicitationCapabilities::new()
+                    .form(wire::ElicitationFormCapabilities::new())
+                    .url(wire::ElicitationUrlCapabilities::new()),
+            )
             .session(
                 wire::ClientSessionCapabilities::new()
                     .compaction(wire::CompactionCapabilities::new()),
@@ -312,6 +317,7 @@ async fn connect(
         let state = Arc::clone(&state);
         async move {
             let permissions = Arc::clone(&state);
+            let elicitations = Arc::clone(&state);
             let reads = Arc::clone(&state);
             let writes = Arc::clone(&state);
             let updates = Arc::clone(&state);
@@ -323,6 +329,15 @@ async fn connect(
                                 responder: sdk::v1::Responder<wire::RequestPermissionResponse>,
                                 _cx| {
                         permissions.permission(request, responder);
+                        Ok(())
+                    },
+                    sdk::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |request: wire::CreateElicitationRequest,
+                                responder: sdk::v1::Responder<wire::CreateElicitationResponse>,
+                                _cx| {
+                        elicitations.elicitation(request, responder);
                         Ok(())
                     },
                     sdk::on_receive_request!(),
@@ -386,11 +401,36 @@ async fn connect(
     }
 }
 
-/// A permission request waiting for the host.
-struct Pending {
-    responder: sdk::v1::Responder<wire::RequestPermissionResponse>,
-    options: Vec<wire::PermissionOption>,
-    tool_call_id: String,
+/// A request waiting for the host.
+enum Pending {
+    Permission {
+        responder: sdk::v1::Responder<wire::RequestPermissionResponse>,
+        options: Vec<request::Choice>,
+        tool_call_id: String,
+    },
+    Elicitation {
+        responder: sdk::v1::Responder<wire::CreateElicitationResponse>,
+        /// A URL to open rather than fields to fill in.
+        url: bool,
+    },
+}
+
+impl Pending {
+    /// Answers as cancelled, as ACP requires when a turn is cancelled.
+    fn cancel(self) {
+        match self {
+            Self::Permission { responder, .. } => {
+                let _ = responder.respond(wire::RequestPermissionResponse::new(
+                    wire::RequestPermissionOutcome::Cancelled,
+                ));
+            }
+            Self::Elicitation { responder, .. } => {
+                let _ = responder.respond(wire::CreateElicitationResponse::new(
+                    wire::ElicitationAction::Cancel,
+                ));
+            }
+        }
+    }
 }
 
 /// What the connection knows about its session, shared with the SDK's
@@ -638,30 +678,27 @@ impl State {
             })
             .or_else(|| title.clone())
             .unwrap_or_else(|| "tool".to_owned());
-        let can_allow_for_session = request
-            .options
-            .iter()
-            .any(|option| option.kind == wire::PermissionOptionKind::AllowAlways);
+        let options: Vec<request::Choice> = request.options.iter().map(choice).collect();
         let event = session::Event::Request {
             request: request::Request {
                 id: id.clone(),
                 turn_id,
-                kind: request::Kind::Tool {
+                kind: request::Kind::Permission(request::Permission {
                     name,
                     display_name: title,
                     description: None,
                     input: fields.raw_input.clone().unwrap_or(Value::Null),
                     tool_call_id: Some(tool_call_id.clone()),
-                    can_allow_for_session,
-                },
+                    options: options.clone(),
+                }),
                 native: serde_json::to_value(&request).unwrap_or_default(),
             },
         };
         inner.pending.insert(
             id,
-            Pending {
+            Pending::Permission {
                 responder,
-                options: request.options,
+                options,
                 tool_call_id,
             },
         );
@@ -669,49 +706,123 @@ impl State {
         self.emit(event);
     }
 
-    /// Answers a forwarded permission request. Returns whether the decision
-    /// asks to stop the turn.
+    /// An `elicitation/create` request: a form for the host, or declined
+    /// when the session does not forward requests.
+    fn elicitation(
+        &self,
+        request: wire::CreateElicitationRequest,
+        responder: sdk::v1::Responder<wire::CreateElicitationResponse>,
+    ) {
+        let native = serde_json::to_value(&request).unwrap_or_default();
+        let (form, tool_call_id) = match &request.mode {
+            wire::ElicitationMode::Form(mode) => (
+                Some(request::Form::from_schema(
+                    request.message.clone(),
+                    serde_json::to_value(&mode.requested_schema).unwrap_or_default(),
+                )),
+                scope_tool_call(&mode.scope),
+            ),
+            wire::ElicitationMode::Url(mode) => {
+                let mut form = request::Form::from_schema(request.message.clone(), Value::Null);
+                form.url = Some(mode.url.clone());
+                (Some(form), scope_tool_call(&mode.scope))
+            }
+            _ => (None, None),
+        };
+        let mut inner = self.lock();
+        let turn_id = inner.turn.as_ref().map(|turn| turn.id.clone());
+        let Some(mut form) = form.filter(|_| inner.forward_requests) else {
+            drop(inner);
+            let _ = responder.respond(wire::CreateElicitationResponse::new(
+                wire::ElicitationAction::Decline,
+            ));
+            self.emit(session::Event::RequestDeclined {
+                method: "elicitation/create".to_owned(),
+                turn_id,
+                summary: Some(request.message),
+            });
+            return;
+        };
+        form.tool_call_id = tool_call_id;
+        let id = format!(
+            "elicitation-{}",
+            self.next_request.fetch_add(1, Ordering::Relaxed)
+        );
+        let url = form.url.is_some();
+        inner
+            .pending
+            .insert(id.clone(), Pending::Elicitation { responder, url });
+        drop(inner);
+        self.emit(session::Event::Request {
+            request: request::Request {
+                id,
+                turn_id,
+                kind: request::Kind::Form(form),
+                native,
+            },
+        });
+    }
+
+    /// Answers a forwarded request. Returns whether the decision asks to
+    /// stop the turn.
     pub(in crate::providers::acp) fn respond(&self, id: &str, decision: &Decision) -> Result<bool> {
         let mut inner = self.lock();
         let not_found = || Error::RequestNotFound {
             session_id: inner.session_id.clone().unwrap_or_default(),
             id: id.to_owned(),
         };
-        let pending = inner.pending.get(id).ok_or_else(not_found)?;
-        let kinds: &[wire::PermissionOptionKind] = match decision {
-            Decision::Allow => &[
-                wire::PermissionOptionKind::AllowOnce,
-                wire::PermissionOptionKind::AllowAlways,
-            ],
-            Decision::AllowForSession => &[wire::PermissionOptionKind::AllowAlways],
-            Decision::Deny { .. } | Decision::Cancel => &[
-                wire::PermissionOptionKind::RejectOnce,
-                wire::PermissionOptionKind::RejectAlways,
-            ],
-        };
-        let outcome = match (choose(&pending.options, kinds), decision) {
-            (Some(option), _) => selected(option),
-            (None, Decision::Deny { .. } | Decision::Cancel) => {
-                wire::RequestPermissionOutcome::Cancelled
+        let answer = match inner.pending.get(id).ok_or_else(not_found)? {
+            Pending::Permission { options, .. } => {
+                let picked = request::pick(id, options, decision)?;
+                let refused = decision.is_refusal()
+                    || picked.is_some_and(|choice| {
+                        matches!(
+                            choice.kind,
+                            request::ChoiceKind::RejectOnce | request::ChoiceKind::RejectAlways
+                        )
+                    });
+                let outcome = match (picked, decision) {
+                    (Some(choice), _) => wire::RequestPermissionOutcome::Selected(
+                        wire::SelectedPermissionOutcome::new(choice.id.clone()),
+                    ),
+                    (None, Decision::Deny { .. } | Decision::Cancel) => {
+                        wire::RequestPermissionOutcome::Cancelled
+                    }
+                    (None, _) => {
+                        return Err(request::invalid(
+                            id,
+                            "the agent offered no option for this decision",
+                        ));
+                    }
+                };
+                Answer::Permission(outcome, refused)
             }
-            (None, _) => {
-                return Err(Error::InvalidSetting {
-                    setting: "decision",
-                    value: format!("{decision:?}"),
-                    reason: "the agent offered no option for this decision".to_owned(),
-                });
+            Pending::Elicitation { url, .. } => {
+                Answer::Elicitation(elicitation_action(id, *url, decision)?)
             }
         };
         let pending = inner.pending.remove(id).expect("pending request");
-        if decision.is_refusal()
-            && let Some(turn) = inner.turn.as_mut()
-        {
-            turn.decline(&pending.tool_call_id);
+        match (pending, answer) {
+            (
+                Pending::Permission {
+                    responder,
+                    tool_call_id,
+                    ..
+                },
+                Answer::Permission(outcome, refused),
+            ) => {
+                if refused && let Some(turn) = inner.turn.as_mut() {
+                    turn.decline(&tool_call_id);
+                }
+                drop(inner);
+                let _ = responder.respond(wire::RequestPermissionResponse::new(outcome));
+            }
+            (Pending::Elicitation { responder, .. }, Answer::Elicitation(action)) => {
+                drop(inner);
+                let _ = responder.respond(wire::CreateElicitationResponse::new(action));
+            }
+            _ => unreachable!("the answer was built for this request"),
         }
-        drop(inner);
-        let _ = pending
-            .responder
-            .respond(wire::RequestPermissionResponse::new(outcome));
         self.emit(session::Event::RequestResolved {
             id: id.to_owned(),
             outcome: request::Outcome::Answered {
@@ -726,11 +837,7 @@ impl State {
     pub(in crate::providers::acp) fn withdraw_requests(&self) {
         let pending: Vec<(String, Pending)> = self.lock().pending.drain().collect();
         for (id, pending) in pending {
-            let _ = pending
-                .responder
-                .respond(wire::RequestPermissionResponse::new(
-                    wire::RequestPermissionOutcome::Cancelled,
-                ));
+            pending.cancel();
             self.emit(session::Event::RequestResolved {
                 id,
                 outcome: request::Outcome::Withdrawn,
@@ -832,6 +939,58 @@ fn choose<'a>(
     kinds
         .iter()
         .find_map(|kind| options.iter().find(|option| option.kind == *kind))
+}
+
+/// How [`State::respond`] answers a pending request.
+enum Answer {
+    /// The outcome, and whether the tool call was refused.
+    Permission(wire::RequestPermissionOutcome, bool),
+    Elicitation(wire::ElicitationAction),
+}
+
+/// An agent's permission option as a [`request::Choice`].
+fn choice(option: &wire::PermissionOption) -> request::Choice {
+    let kind = match option.kind {
+        wire::PermissionOptionKind::AllowOnce => request::ChoiceKind::AllowOnce,
+        wire::PermissionOptionKind::AllowAlways => request::ChoiceKind::AllowAlways,
+        wire::PermissionOptionKind::RejectOnce => request::ChoiceKind::RejectOnce,
+        wire::PermissionOptionKind::RejectAlways => request::ChoiceKind::RejectAlways,
+        _ => request::ChoiceKind::Unknown,
+    };
+    request::Choice::new(option.option_id.0.to_string(), option.name.clone(), kind)
+}
+
+/// The tool call an elicitation belongs to, when the agent says.
+fn scope_tool_call(scope: &wire::ElicitationScope) -> Option<String> {
+    match scope {
+        wire::ElicitationScope::Session(scope) => {
+            scope.tool_call_id.as_ref().map(|id| id.0.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// The elicitation answer for a decision: a submitted form accepts it with
+/// its values, a refusal declines or cancels it. A URL is accepted with no
+/// content once the user opened it.
+fn elicitation_action(id: &str, url: bool, decision: &Decision) -> Result<wire::ElicitationAction> {
+    let accept = |values: Option<&serde_json::Map<String, Value>>| {
+        let mut action = serde_json::json!({ "action": "accept" });
+        if let Some(values) = values.filter(|_| !url) {
+            action["content"] = Value::Object(values.clone());
+        }
+        serde_json::from_value(action).map_err(|error| request::invalid(id, error.to_string()))
+    };
+    match decision {
+        Decision::Submit { values } => accept(Some(values)),
+        Decision::Allow => accept(None),
+        Decision::Deny { .. } => Ok(wire::ElicitationAction::Decline),
+        Decision::Cancel => Ok(wire::ElicitationAction::Cancel),
+        decision => Err(request::invalid(
+            id,
+            format!("{} does not answer a form", decision.name()),
+        )),
+    }
 }
 
 fn selected(option: &wire::PermissionOption) -> wire::RequestPermissionOutcome {

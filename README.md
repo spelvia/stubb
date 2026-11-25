@@ -116,7 +116,7 @@ unsupported returns an explicit error.
 | --- | --- |
 | Sessions | Start, resume, fork, and list sessions; read stored conversation history |
 | Streaming | Receive messages, tool activity, and turn events; recover missed activity from sequenced records and snapshots |
-| Permission requests | Forward tool permission prompts to your users and answer them asynchronously |
+| Requests | Forward tool permission prompts, the agent's questions, plan approvals and MCP forms to your users and answer them asynchronously |
 | Permissions and planning | Configure native approval rules and sandbox settings; use plan mode and switch to execution |
 | Models and settings | Discover models; change model, effort, speed, and permissions mid-session |
 | Active input | Steer a running turn or queue follow-up messages |
@@ -141,7 +141,7 @@ Run any example from a checkout with `cargo run --example <name> -- <args>`:
 | --- | --- |
 | [quickstart](crates/stubb/examples/quickstart.rs) | The program above |
 | [chat](crates/stubb/examples/chat.rs) | An interactive terminal chat with any provider, including tool activity |
-| [approve](crates/stubb/examples/approve.rs) | Answering an agent's permission requests |
+| [approve](crates/stubb/examples/approve.rs) | Answering an agent's permission requests, questions and plans |
 | [models](crates/stubb/examples/models.rs) | Discovering models and their settings |
 | [sessions](crates/stubb/examples/sessions.rs) | Listing sessions and reading history |
 | [observe](crates/stubb/examples/observe.rs) | Inspecting stored subagents, tasks, and logs |
