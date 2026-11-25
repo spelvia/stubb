@@ -395,6 +395,7 @@ impl Claude {
             persisted: restored,
             summary,
         };
+        process.initialize_commands(&init);
         process.configure_observation(&info);
         if let Some((stored, tasks)) = bootstrap {
             process.restore_observation(stored, tasks);

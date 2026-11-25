@@ -45,6 +45,7 @@ pub(super) struct SessionState {
     context_window: Option<i64>,
     /// A compaction was reported started and has not ended.
     compacting: bool,
+    has_reply: bool,
 }
 
 struct Block {
@@ -63,6 +64,7 @@ impl SessionState {
     /// A native delegated execution. Its spawning tool ID is the turn identity
     /// until Claude reports a separate continuation; no user input is invented.
     pub(super) fn delegated_turn(&mut self, turn_id: &str) -> Vec<Event> {
+        self.has_reply = false;
         self.turn_id = Some(turn_id.to_owned());
         vec![Event::TurnStart {
             turn_id: turn_id.to_owned(),
@@ -86,6 +88,7 @@ impl SessionState {
         turn_id: &str,
         content: Vec<UserContent>,
     ) -> Vec<Event> {
+        self.has_reply = false;
         self.turn_id = Some(turn_id.to_owned());
         let item = Item::UserMessage {
             id: turn_id.to_owned(),
@@ -190,7 +193,7 @@ impl SessionState {
     }
 
     fn content(&mut self, message: &Value) -> Vec<Event> {
-        match message.get("type").and_then(Value::as_str) {
+        let events = match message.get("type").and_then(Value::as_str) {
             Some("stream_event") => self.stream(message.get("event").unwrap_or(&Value::Null)),
             Some("assistant") => self.assistant(message),
             Some("user") => self.tool_results(message),
@@ -201,7 +204,11 @@ impl SessionState {
                 _ => vec![raw(message)],
             },
             _ => vec![raw(message)],
+        };
+        if events.iter().any(|event| matches!(event, Event::ItemEnd { item: Item::AgentMessage { text, .. }, .. } if !text.is_empty())) {
+            self.has_reply = true;
         }
+        events
     }
 
     fn turn(&self) -> String {
@@ -570,8 +577,21 @@ impl SessionState {
                 context_window,
             },
         });
-        usage
+        let final_text = message["result"]
+            .as_str()
+            .filter(|value| !value.trim().is_empty());
+        let reply = final_text
+            .filter(|_| status == turn::Status::Completed && !self.has_reply)
+            .map(|value| Event::ItemEnd {
+                turn_id: turn_id.clone(),
+                item: Item::AgentMessage {
+                    id: format!("{turn_id}:result"),
+                    text: value.to_owned(),
+                },
+            });
+        reply
             .into_iter()
+            .chain(usage)
             .chain([
                 Event::Status {
                     status: session::Status::Idle,

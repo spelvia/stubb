@@ -88,6 +88,51 @@ impl session::Driver for ClaudeSession {
         Box::pin(async move { self.process.task_output(id, query).await })
     }
 
+    fn skills(&self) -> BoxFuture<'_, Result<Vec<session::Skill>>> {
+        Box::pin(async {
+            let commands = self.process.commands();
+            let skills = commands.iter().filter(|c| {
+                let name = c["name"].as_str().unwrap_or_default();
+                c["builtin"] != true
+                    && !name.contains(char::is_whitespace)
+                    && !name.starts_with("mcp__")
+                    && !commands
+                        .iter()
+                        .any(|entry| entry["builtin"] == true && entry["name"] == name)
+                    && (commands.iter().any(|entry| entry["builtin"] == true)
+                        || ["(user)", "(project)", "(plugin)"]
+                            .iter()
+                            .any(|s| c["description"].as_str().unwrap_or_default().ends_with(s)))
+            });
+            Ok(skills
+                .filter_map(|c| {
+                    let name = c["name"].as_str()?;
+                    Some(session::Skill::new(
+                        name.into(),
+                        name.into(),
+                        c["description"].as_str().unwrap_or_default().into(),
+                    ))
+                })
+                .collect())
+        })
+    }
+
+    fn invoke_skill<'a>(
+        &'a self,
+        id: &'a str,
+        input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
+        Box::pin(async move {
+            let skill = self
+                .skills()
+                .await?
+                .into_iter()
+                .find(|s| s.id == id)
+                .ok_or_else(|| session::Skill::unavailable(id))?;
+            self.send(skill.slash_input(input)).await
+        })
+    }
+
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
         Box::pin(async move {
             if !self.process.is_alive() {

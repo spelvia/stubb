@@ -17,6 +17,47 @@ impl session::Driver for PiSession {
         self.process.subscribe()
     }
 
+    fn skills(&self) -> BoxFuture<'_, Result<Vec<session::Skill>>> {
+        Box::pin(async {
+            let catalog = self
+                .process
+                .command(json!({"type":"get_commands"}), self.request_timeout)
+                .await?;
+            let commands = catalog["commands"]
+                .as_array()
+                .ok_or_else(|| Error::Unsupported {
+                    operation: "skills",
+                })?;
+            let skills = commands.iter().filter(|c| c["source"] == "skill");
+            Ok(skills
+                .filter_map(|c| {
+                    let name = c["name"].as_str()?;
+                    Some(session::Skill::new(
+                        name.into(),
+                        name.into(),
+                        c["description"].as_str().unwrap_or_default().into(),
+                    ))
+                })
+                .collect())
+        })
+    }
+
+    fn invoke_skill<'a>(
+        &'a self,
+        id: &'a str,
+        input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
+        Box::pin(async move {
+            let skill = self
+                .skills()
+                .await?
+                .into_iter()
+                .find(|s| s.id == id)
+                .ok_or_else(|| session::Skill::unavailable(id))?;
+            self.send(skill.slash_input(input)).await
+        })
+    }
+
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
         Box::pin(async move {
             if !self.process.is_alive() {

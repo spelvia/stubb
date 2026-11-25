@@ -29,6 +29,26 @@ pub struct Skill {
 }
 
 impl Skill {
+    pub(crate) fn unavailable(id: &str) -> crate::Error {
+        crate::Error::InvalidSetting {
+            setting: "skill",
+            value: id.to_owned(),
+            reason: "skill unavailable in this session".into(),
+        }
+    }
+
+    pub(crate) fn slash_input(&self, mut input: turn::Input) -> turn::Input {
+        let prefix = format!("/{}", self.name);
+        if !input
+            .text
+            .strip_prefix(&prefix)
+            .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+        {
+            input.text = format!("{prefix} {}", input.text).trim_end().to_owned();
+        }
+        input
+    }
+
     pub fn new(id: String, name: String, description: String) -> Self {
         Self {
             id,

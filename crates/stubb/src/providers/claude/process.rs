@@ -75,6 +75,7 @@ pub(super) struct ClaudeProcess {
 }
 
 struct Shared {
+    commands: Mutex<Option<Vec<Value>>>,
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     pending: Mutex<HashMap<String, oneshot::Sender<std::result::Result<Value, String>>>>,
     next_id: AtomicU64,
@@ -100,6 +101,25 @@ struct Pending {
 }
 
 impl ClaudeProcess {
+    pub(super) fn commands(&self) -> Vec<Value> {
+        self.shared
+            .commands
+            .lock()
+            .expect("commands lock")
+            .clone()
+            .unwrap_or_default()
+    }
+
+    pub(super) fn initialize_commands(&self, init: &Value) {
+        if let Some(commands) = init["commands"].as_array() {
+            self.shared
+                .commands
+                .lock()
+                .expect("commands lock")
+                .get_or_insert_with(|| commands.clone());
+        }
+    }
+
     pub(super) fn spawn(launch: &Launch<'_>) -> Result<Self> {
         let mut command = Command::new(launch.executable);
         command
@@ -164,6 +184,7 @@ impl ClaudeProcess {
         let stderr = child.stderr.take().expect("stderr is piped");
 
         let shared = Arc::new(Shared {
+            commands: Mutex::new(None),
             stdin: tokio::sync::Mutex::new(Some(stdin)),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(0),
@@ -496,6 +517,11 @@ impl Shared {
             Some("control_cancel_request") => {
                 if let Some(id) = message.get("request_id") {
                     self.withdraw(&native_key(id));
+                }
+            }
+            Some("system") if message["subtype"] == "commands_changed" => {
+                if let Some(commands) = message["commands"].as_array() {
+                    *self.commands.lock().expect("commands lock") = Some(commands.clone());
                 }
             }
             Some("keep_alive") => {}
