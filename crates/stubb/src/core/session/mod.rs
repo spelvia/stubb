@@ -19,6 +19,25 @@ mod event;
 pub use driver::Driver;
 pub use event::{CloseReason, EVENT_FORMAT, Event};
 
+/// A skill available to this session. Pass its opaque id to [`Session::invoke_skill`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+impl Skill {
+    pub fn new(id: String, name: String, description: String) -> Self {
+        Self {
+            id,
+            name,
+            description,
+        }
+    }
+}
+
 /// A session loaded into a running harness.
 ///
 /// Cloning shares the same session. Dropping every handle does not close the
@@ -116,6 +135,16 @@ impl Session {
     /// [`crate::Error::InvalidSetting`].
     pub async fn set_mode(&self, mode_id: &str) -> Result<()> {
         self.driver.set_mode(mode_id).await
+    }
+
+    /// Lists skills that can be explicitly invoked in this session.
+    pub async fn skills(&self) -> Result<Vec<Skill>> {
+        self.driver.skills().await
+    }
+
+    /// Starts a turn using the selected skill and the user's instructions and images.
+    pub async fn invoke_skill(&self, id: &str, input: turn::Input) -> Result<turn::Receipt> {
+        self.driver.invoke_skill(id, input).await
     }
 
     /// Starts a turn with `input`. Subscribe first to receive all of its

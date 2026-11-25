@@ -503,6 +503,7 @@ impl Codex {
         let attachment = connection.observe(&info);
         attachment.set_forward_requests(forward_requests);
         let driver = CodexSession {
+            cwd: info.cwd.clone(),
             connection,
             thread_id,
             attachment,

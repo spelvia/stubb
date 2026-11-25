@@ -15,6 +15,7 @@ use super::{
 use crate::{BoxFuture, Error, Result, session, turn};
 
 pub(super) struct CodexSession {
+    pub(super) cwd: std::path::PathBuf,
     pub(super) connection: Arc<AppServer>,
     pub(super) thread_id: String,
     pub(super) attachment: Arc<live::Attachment>,
@@ -27,6 +28,76 @@ pub(super) struct CodexSession {
 }
 
 impl CodexSession {
+    async fn list_skills(&self) -> Result<Vec<session::Skill>> {
+        #[derive(serde::Deserialize)]
+        struct Response {
+            data: Vec<Catalog>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Catalog {
+            cwd: std::path::PathBuf,
+            skills: Vec<Entry>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Entry {
+            path: String,
+            name: String,
+            description: String,
+            enabled: bool,
+        }
+
+        let response: Response = self
+            .connection
+            .request(
+                "skills/list",
+                &serde_json::json!({"cwds": [&self.cwd], "forceReload": true}),
+                self.request_timeout,
+            )
+            .await?;
+        Ok(response
+            .data
+            .into_iter()
+            .filter(|c| c.cwd == self.cwd)
+            .flat_map(|c| c.skills)
+            .filter(|s| s.enabled)
+            .map(|s| session::Skill::new(s.path, s.name, s.description))
+            .collect())
+    }
+
+    async fn start_turn(
+        &self,
+        input: turn::Input,
+        skill: Option<&session::Skill>,
+    ) -> Result<turn::Receipt> {
+        let overrides = self.overrides.lock().expect("overrides lock").take();
+        let response: types::TurnStartResponse = self
+            .connection
+            .request(
+                "turn/start",
+                &types::TurnStartParams {
+                    approval_policy: overrides.as_ref().and_then(|p| p.approval_policy.clone()),
+                    sandbox_policy: overrides.as_ref().and_then(Permissions::turn_sandbox),
+                    summary: self.reasoning_summary.as_deref(),
+                    thread_id: &self.thread_id,
+                    input: input
+                        .images
+                        .iter()
+                        .map(|image| types::UserInput::LocalImage { path: &image.path })
+                        .chain([types::UserInput::Text { text: &input.text }])
+                        .chain(skill.map(|s| types::UserInput::Skill {
+                            name: &s.name,
+                            path: &s.id,
+                        }))
+                        .collect(),
+                },
+                self.request_timeout,
+            )
+            .await?;
+        Ok(turn::Receipt {
+            turn_id: response.turn.id,
+        })
+    }
+
     async fn stop(
         &self,
         target: crate::observation::control::Target,
@@ -147,32 +218,32 @@ impl session::Driver for CodexSession {
         })
     }
 
-    fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
+    fn skills(&self) -> BoxFuture<'_, Result<Vec<session::Skill>>> {
+        Box::pin(self.list_skills())
+    }
+
+    fn invoke_skill<'a>(
+        &'a self,
+        id: &'a str,
+        input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
         Box::pin(async move {
-            let overrides = self.overrides.lock().expect("overrides lock").take();
-            let response: types::TurnStartResponse = self
-                .connection
-                .request(
-                    "turn/start",
-                    &types::TurnStartParams {
-                        approval_policy: overrides.as_ref().and_then(|p| p.approval_policy.clone()),
-                        sandbox_policy: overrides.as_ref().and_then(Permissions::turn_sandbox),
-                        summary: self.reasoning_summary.as_deref(),
-                        thread_id: &self.thread_id,
-                        input: input
-                            .images
-                            .iter()
-                            .map(|image| types::UserInput::LocalImage { path: &image.path })
-                            .chain([types::UserInput::Text { text: &input.text }])
-                            .collect(),
-                    },
-                    self.request_timeout,
-                )
-                .await?;
-            Ok(turn::Receipt {
-                turn_id: response.turn.id,
-            })
+            let skill = self
+                .list_skills()
+                .await?
+                .into_iter()
+                .find(|s| s.id == id)
+                .ok_or_else(|| Error::InvalidSetting {
+                    setting: "skill",
+                    value: id.to_owned(),
+                    reason: "skill unavailable in this session".into(),
+                })?;
+            self.start_turn(input, Some(&skill)).await
         })
+    }
+
+    fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>> {
+        Box::pin(self.start_turn(input, None))
     }
 
     fn respond<'a>(

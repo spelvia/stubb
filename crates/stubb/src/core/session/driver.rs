@@ -69,6 +69,28 @@ pub trait Driver: Send + Sync {
         })
     }
 
+    /// Lists explicitly invocable skills scoped to this session.
+    fn skills(&self) -> BoxFuture<'_, Result<Vec<super::Skill>>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "skills",
+            })
+        })
+    }
+
+    /// Starts a turn with a skill returned by this session's catalog.
+    fn invoke_skill<'a>(
+        &'a self,
+        _id: &'a str,
+        _input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "invoke_skill",
+            })
+        })
+    }
+
     /// Starts a turn; returns once the agent accepted it. The receipt's turn
     /// id is the one the turn's events carry and the one it is stored under.
     fn send(&self, input: turn::Input) -> BoxFuture<'_, Result<turn::Receipt>>;

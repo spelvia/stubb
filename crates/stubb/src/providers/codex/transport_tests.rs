@@ -27,6 +27,7 @@ while IFS= read -r line; do
   [ -n "$method" ] || continue
   case "$method" in
     initialize) printf '{{"id":%s,"result":{{"userAgent":"stubb-test/0.1.0"}}}}\n' "$id" ;;
+    skills/list) printf '{{"id":%s,"result":{{"data":[{{"cwd":"/tmp","skills":[{{"name":"review","path":"/tmp/review/SKILL.md","description":"Review changes","enabled":true}},{{"name":"old","path":"/tmp/old","description":"","enabled":false}}]}}]}}}}\n' "$id" ;;
     model/list) printf '{{"id":%s,"result":{{"data":[]}}}}\n' "$id" ;;
     account/rateLimits/read) printf '{{"id":%s,"result":{{"rateLimits":{{"limitId":"codex","planType":"plus","primary":{{"usedPercent":16,"windowDurationMins":10080}}}}}}}}\n' "$id" ;;
     thread/start) printf '{{"id":%s,"result":{{"thread":{{"id":"thread-1","cwd":"/tmp","status":{{"type":"idle"}}}},"model":"gpt-test","cwd":"/tmp"}}}}\n' "$id" ;;
@@ -609,5 +610,47 @@ async fn without_forwarding_server_requests_are_declined() {
     );
     live.close().await.unwrap();
     codex.shutdown().await;
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn invokes_only_catalogued_skills_with_instructions_and_images() {
+    let folder = folder();
+    let codex = provider(&folder, None);
+    let session = codex
+        .start_session(session::Spec {
+            cwd: "/tmp".into(),
+            settings: session::Settings::default(),
+        })
+        .await
+        .unwrap();
+    let skills = session.skills().await.unwrap();
+    assert_eq!(skills.len(), 1);
+    assert!(
+        session
+            .invoke_skill("/tmp/old", crate::turn::Input::text("run"))
+            .await
+            .is_err()
+    );
+    let input = crate::turn::Input::text("inspect the screenshot")
+        .with_images(vec![crate::turn::Image::new("/tmp/image.png", "image/png")]);
+    session.invoke_skill(&skills[0].id, input).await.unwrap();
+    let requests: Vec<serde_json::Value> = lines(&folder, "requests")
+        .into_iter()
+        .map(|line| serde_json::from_str(&line).unwrap())
+        .collect();
+    let turns: Vec<_> = requests
+        .iter()
+        .filter(|r| r["method"] == "turn/start")
+        .collect();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(
+        turns[0]["params"]["input"],
+        serde_json::json!([
+            {"type":"localImage","path":"/tmp/image.png"}, {"type":"text","text":"inspect the screenshot"},
+            {"type":"skill","name":"review","path":"/tmp/review/SKILL.md"}
+        ])
+    );
+    session.close().await.unwrap();
     std::fs::remove_dir_all(folder).unwrap();
 }
