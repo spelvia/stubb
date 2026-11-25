@@ -70,4 +70,4 @@ pub use core::observation;
 pub use core::provider::{BoxFuture, Provider};
 pub use core::runtime::process;
 pub use core::session::Session;
-pub use core::{catalog, permission, provider, request, session, turn, usage};
+pub use core::{catalog, mcp, permission, provider, request, session, turn, usage};

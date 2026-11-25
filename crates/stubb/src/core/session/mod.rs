@@ -157,6 +157,21 @@ impl Session {
         self.driver.set_mode(mode_id).await
     }
 
+    /// Discover prompts from the MCP servers connected through this provider.
+    pub async fn mcp_prompts(&self) -> Result<Vec<crate::mcp::Prompt>> {
+        self.driver.mcp_prompts().await
+    }
+
+    /// Invoke an advertised prompt through its originating provider connection.
+    pub async fn invoke_mcp_prompt(
+        &self,
+        server: &str,
+        name: &str,
+        input: turn::Input,
+    ) -> Result<turn::Receipt> {
+        self.driver.invoke_mcp_prompt(server, name, input).await
+    }
+
     /// Lists skills that can be explicitly invoked in this session.
     pub async fn skills(&self) -> Result<Vec<Skill>> {
         self.driver.skills().await

@@ -19,6 +19,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["claude", "codex", "pi", "acp"]
+mcp = ["dep:rmcp"]
 claude = []
 codex = []
 pi = []
@@ -28,6 +29,10 @@ acp = ["dep:agent-client-protocol"]
 agent-client-protocol = { version = "5.3.0", optional = true }
 base64 = "0.23"
 futures = { version = "0.3", default-features = false, features = ["std"] }
+rmcp = { version = "3.11", optional = true, default-features = false, features = [
+	"client",
+	"transport-child-process",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

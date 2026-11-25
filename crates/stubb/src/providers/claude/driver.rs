@@ -88,6 +88,53 @@ impl session::Driver for ClaudeSession {
         Box::pin(async move { self.process.task_output(id, query).await })
     }
 
+    fn mcp_prompts(&self) -> BoxFuture<'_, Result<Vec<crate::mcp::Prompt>>> {
+        Box::pin(async {
+            Ok(self
+                .process
+                .commands()
+                .iter()
+                .filter_map(|row| {
+                    let label = row["name"].as_str()?.strip_suffix(" (MCP)")?;
+                    let (server, name) = label.split_once(':')?;
+                    Some(crate::mcp::Prompt {
+                        server: server.into(),
+                        name: name.into(),
+                        description: row["description"].as_str().unwrap_or_default().into(),
+                        arguments: None,
+                    })
+                })
+                .collect())
+        })
+    }
+
+    fn invoke_mcp_prompt<'a>(
+        &'a self,
+        server: &'a str,
+        name: &'a str,
+        mut input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
+        Box::pin(async move {
+            if !self
+                .mcp_prompts()
+                .await?
+                .iter()
+                .any(|p| p.server == server && p.name == name)
+            {
+                return Err(Error::InvalidSetting {
+                    setting: "prompt",
+                    value: name.into(),
+                    reason: "MCP prompt unavailable".into(),
+                });
+            }
+            // Claude dispatches this to prompts/get on its existing server connection.
+            input.text = format!("/mcp__{server}__{name} {}", input.text)
+                .trim_end()
+                .to_owned();
+            self.send(input).await
+        })
+    }
+
     fn skills(&self) -> BoxFuture<'_, Result<Vec<session::Skill>>> {
         Box::pin(async {
             let commands = self.process.commands();

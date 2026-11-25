@@ -69,6 +69,29 @@ pub trait Driver: Send + Sync {
         })
     }
 
+    /// Prompts exposed by the provider's existing MCP connections.
+    fn mcp_prompts(&self) -> BoxFuture<'_, Result<Vec<crate::mcp::Prompt>>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "mcp_prompts",
+            })
+        })
+    }
+
+    /// Invoke a prompt on the provider's existing connection to its server.
+    fn invoke_mcp_prompt<'a>(
+        &'a self,
+        _server: &'a str,
+        _name: &'a str,
+        _input: turn::Input,
+    ) -> BoxFuture<'a, Result<turn::Receipt>> {
+        Box::pin(async {
+            Err(Error::Unsupported {
+                operation: "invoke_mcp_prompt",
+            })
+        })
+    }
+
     /// Lists explicitly invocable skills scoped to this session.
     fn skills(&self) -> BoxFuture<'_, Result<Vec<super::Skill>>> {
         Box::pin(async {

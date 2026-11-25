@@ -23,11 +23,9 @@ impl session::Driver for PiSession {
                 .process
                 .command(json!({"type":"get_commands"}), self.request_timeout)
                 .await?;
-            let commands = catalog["commands"]
-                .as_array()
-                .ok_or_else(|| Error::Unsupported {
-                    operation: "skills",
-                })?;
+            let commands = catalog["commands"].as_array().ok_or(Error::Unsupported {
+                operation: "skills",
+            })?;
             let skills = commands.iter().filter(|c| c["source"] == "skill");
             Ok(skills
                 .filter_map(|c| {
