@@ -589,9 +589,18 @@ impl SessionState {
                     text: value.to_owned(),
                 },
             });
+        let accounting = message["total_cost_usd"]
+            .as_f64()
+            .filter(|cost| cost.is_finite() && *cost >= 0.0)
+            .map(|cost| Event::TurnAccounting {
+                turn_id: turn_id.clone(),
+                tokens: (calls.total > 0).then_some(calls.total),
+                session_cost_usd: Some(cost),
+            });
         reply
             .into_iter()
             .chain(usage)
+            .chain(accounting)
             .chain([
                 Event::Status {
                     status: session::Status::Idle,

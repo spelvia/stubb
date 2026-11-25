@@ -23,7 +23,14 @@ pub(super) fn detail(
             // Claude Code reports failure through the tool result, not an exit code.
             exit_code: None,
         },
-        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ToolDetail::FileChange {
+        "NotebookEdit" => ToolDetail::NotebookEdit {
+            path: PathBuf::from(text("notebook_path")),
+            cell_id: input["cell_id"].as_str().map(str::to_owned),
+            cell_type: input["cell_type"].as_str().map(str::to_owned),
+            source: text("new_source").to_owned(),
+            operation: input["edit_mode"].as_str().map(str::to_owned),
+        },
+        "Edit" | "MultiEdit" | "Write" => ToolDetail::FileChange {
             changes: file_changes(name, input),
         },
         _ => match name
@@ -91,10 +98,6 @@ fn file_changes(name: &str, input: &Value) -> Vec<FileChange> {
                 .join("\n");
             (FileChangeKind::Update { move_path: None }, diff)
         }
-        "NotebookEdit" => (
-            FileChangeKind::Update { move_path: None },
-            prefixed("+", &text(input, "new_source")),
-        ),
         _ => (
             FileChangeKind::Update { move_path: None },
             replace_diff(&text(input, "old_string"), &text(input, "new_string")),
@@ -120,6 +123,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn notebook_changes_keep_cell_identity_and_source() {
+        let detail = detail(
+            "NotebookEdit",
+            &json!({"notebook_path":"analysis.ipynb","cell_id":"cell-7","cell_type":"markdown","new_source":"# Result","edit_mode":"replace"}),
+            None,
+            false,
+        );
+        assert!(
+            matches!(detail,ToolDetail::NotebookEdit { cell_id,source,.. } if cell_id.as_deref()==Some("cell-7") && source=="# Result")
+        );
+    }
 
     #[test]
     fn maps_known_tools() {

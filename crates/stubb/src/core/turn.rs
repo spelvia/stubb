@@ -154,6 +154,14 @@ pub enum ToolDetail {
     FileChange {
         changes: Vec<FileChange>,
     },
+    /// A single notebook cell change, with the metadata supplied by the agent.
+    NotebookEdit {
+        path: PathBuf,
+        cell_id: Option<String>,
+        cell_type: Option<String>,
+        source: String,
+        operation: Option<String>,
+    },
     /// An MCP tool call as Stubb reported it before 0.1.1-rc.2, without its
     /// result. Stubb now reports [`ToolDetail::McpCall`]; this variant
     /// remains so stored events still read.

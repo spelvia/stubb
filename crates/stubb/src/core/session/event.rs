@@ -59,6 +59,13 @@ pub enum Event {
     ItemEnd { turn_id: String, item: turn::Item },
     /// Token usage after a model call.
     Usage { turn_id: String, usage: turn::Usage },
+    /// Accounting at turn end, when the provider reports it. Tokens belong to
+    /// this turn; cost is the native session total at the end of the turn.
+    TurnAccounting {
+        turn_id: String,
+        tokens: Option<i64>,
+        session_cost_usd: Option<f64>,
+    },
     /// The agent started or finished compacting its context. `turn_id` is
     /// `None` when it happened outside a turn.
     Compaction {
