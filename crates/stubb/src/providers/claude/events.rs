@@ -295,6 +295,14 @@ impl SessionState {
         // Notifications handled within this query are done with.
         self.notification_pending = false;
         if std::mem::take(&mut self.stale_result) {
+            // The ended automatic turn's calls still count for the session,
+            // and none of them is the host turn's.
+            let calls = token_count(message.get("usage").unwrap_or(&Value::Null), None);
+            self.total = add(self.total, calls);
+            self.turn_calls = turn::TokenCount::default();
+            self.call_start = None;
+            self.call = None;
+            self.last_call = None;
             return true;
         }
         let idle = !query.output && message.get("num_turns").and_then(Value::as_u64) == Some(0);
@@ -833,15 +841,23 @@ mod tests {
         // The automatic turn's own result, then the host's query.
         for line in [
             json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "",
-                    "is_error": false }),
+                    "is_error": false, "usage": { "input_tokens": 100, "output_tokens": 10 } }),
             json!({ "type": "system", "subtype": "init" }),
             assistant("a2", "Done."),
             json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "Done.",
-                    "is_error": false }),
+                    "is_error": false, "usage": { "input_tokens": 20, "output_tokens": 5 } }),
         ] {
             events.extend(message(&mut state, line));
         }
         assert_eq!(turn_ends(&events), ["a1", "h1"]);
+        // Both turns' calls count for the session; the last call is the host's.
+        let usage = events.iter().rev().find_map(|event| match event {
+            Event::Usage { turn_id, usage } if turn_id == "h1" => Some(usage),
+            _ => None,
+        });
+        let usage = usage.expect("the host turn's usage");
+        assert_eq!(usage.total.total, 135);
+        assert_eq!(usage.last.total, 25);
     }
 
     #[test]
