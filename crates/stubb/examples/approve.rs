@@ -90,7 +90,14 @@ async fn main() -> stubb::Result<()> {
                 } else {
                     ask(&request, &mut answers).await?
                 };
-                println!("  → {decision:?}");
+                // Answers to secret questions stay off the screen and out of logs.
+                let secret = matches!(&request.kind, Kind::Question(questions)
+                    if questions.questions.iter().any(|question| question.secret));
+                if secret {
+                    println!("  → answered (secret answers hidden)");
+                } else {
+                    println!("  → {decision:?}");
+                }
                 answer(&live, &request, decision).await?;
             }
             session::Event::RequestResolved { id, outcome } => {
@@ -199,6 +206,11 @@ async fn ask(request: &Request, answers: &mut Lines<BufReader<Stdin>>) -> stubb:
             }
             let mut values = serde_json::Map::new();
             for field in &form.fields {
+                if matches!(field.kind, FieldKind::Select | FieldKind::MultiSelect) {
+                    for option in &field.options {
+                        println!("  {} ({})", option.label, option.value);
+                    }
+                }
                 let line = read(&format!(
                     "{}: ",
                     field.title.as_ref().unwrap_or(&field.name)

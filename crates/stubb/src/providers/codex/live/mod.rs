@@ -85,6 +85,17 @@ impl Attachment {
         Ok((pending, value))
     }
 
+    /// Puts back a request whose reply never left Stubb, so it can be
+    /// answered again.
+    pub(super) fn restore(&self, id: &str, pending: super::requests::Pending) {
+        self.requests
+            .lock()
+            .expect("requests lock")
+            .pending
+            .entry(id.to_owned())
+            .or_insert(pending);
+    }
+
     /// A pending request ended without an answer.
     pub(super) fn withdraw(&self, id: &str) {
         let removed = self

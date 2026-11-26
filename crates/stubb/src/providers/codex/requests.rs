@@ -238,10 +238,14 @@ pub(super) fn result(id: &str, pending: &Pending, decision: &Decision) -> Result
 }
 
 /// Whether the decision stops the turn as well: Codex's own `cancel`
-/// already does so for approvals, questions and forms need an interrupt.
+/// already does so for command and file approvals; permission grants,
+/// questions and forms have no cancel of their own and need an interrupt.
 pub(super) fn interrupts(pending: &Pending, decision: &Decision) -> bool {
     matches!(decision, Decision::Cancel)
-        && matches!(pending.method.as_str(), USER_INPUT | ELICITATION)
+        && matches!(
+            pending.method.as_str(),
+            USER_INPUT | ELICITATION | PERMISSIONS_APPROVAL
+        )
 }
 
 /// The requested permissions, without the parts not asked for.
@@ -371,6 +375,9 @@ mod tests {
             result("7", &permissions, &Decision::Deny { message: None }).unwrap(),
             json!({ "permissions": {}, "scope": "turn" })
         );
+        // A grant has no cancel: refusing it stops the turn with an interrupt.
+        assert!(!interrupts(&permissions, &Decision::Deny { message: None }));
+        assert!(interrupts(&permissions, &Decision::Cancel));
     }
 
     #[test]

@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -189,7 +189,10 @@ impl Connection {
 
         let sent = self
             .shared
-            .write(&json!({ "id": id, "method": method, "params": params }))
+            .write(
+                &json!({ "id": id, "method": method, "params": params }),
+                None,
+            )
             .await;
         if let Err(error) = sent {
             self.shared
@@ -229,14 +232,23 @@ impl Connection {
     }
 
     /// Answers a request the child sent, with its JSON-RPC `result`.
-    pub(in crate::providers::codex) async fn reply(&self, id: &Value, result: Value) -> Result<()> {
+    /// Replies to a server request, setting `started` once bytes may reach
+    /// Codex: a failure before then (no stdin, or the call dropped while
+    /// waiting its turn to write) sent nothing, so the request can be
+    /// answered again.
+    pub(in crate::providers::codex) async fn reply(
+        &self,
+        id: &Value,
+        result: Value,
+        started: &AtomicBool,
+    ) -> Result<()> {
         self.shared
-            .write(&json!({ "id": id, "result": result }))
+            .write(&json!({ "id": id, "result": result }), Some(started))
             .await
     }
 
     pub(in crate::providers::codex) async fn notify(&self, method: &str) -> Result<()> {
-        self.shared.write(&json!({ "method": method })).await
+        self.shared.write(&json!({ "method": method }), None).await
     }
 
     /// Routes events for `session_id` directly into its provider reducer.
@@ -283,7 +295,7 @@ impl Drop for Connection {
 }
 
 impl Shared {
-    async fn write(&self, message: &Value) -> Result<()> {
+    async fn write(&self, message: &Value, started: Option<&AtomicBool>) -> Result<()> {
         let mut stdin = self.stdin.lock().await;
         let Some(stdin) = stdin.as_mut() else {
             return Err(Error::ProcessExited {
@@ -292,6 +304,9 @@ impl Shared {
         };
         let mut line = message.to_string().into_bytes();
         line.push(b'\n');
+        if let Some(started) = started {
+            started.store(true, Ordering::SeqCst);
+        }
         stdin.write_all(&line).await?;
         stdin.flush().await?;
         Ok(())
@@ -326,7 +341,7 @@ impl Shared {
                 let params = params();
                 let (reply, event) = self.handler.request(id, method, &params);
                 if let Some(reply) = reply {
-                    let _ = self.write(&reply).await;
+                    let _ = self.write(&reply, None).await;
                 }
                 if let Some(event) = event
                     && !self.handler.route_event(&params, &event)

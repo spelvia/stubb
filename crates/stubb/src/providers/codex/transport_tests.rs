@@ -602,11 +602,19 @@ async fn without_forwarding_server_requests_are_declined() {
             "mcpServer/elicitation/request"
         ]
     );
-    assert!(
-        eventually(|| lines(&folder, "requests")
+    // Each declined request gets its own error reply.
+    let declined_ids = || {
+        lines(&folder, "requests")
             .iter()
-            .any(|line| line.starts_with(r#"{"error":"#) || line.contains(r#""id":900,"error""#)))
-        .await
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|reply| reply.get("error").is_some())
+            .filter_map(|reply| reply["id"].as_i64())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert!(
+        eventually(|| declined_ids().is_superset(&[900, 901].into())).await,
+        "{:?}",
+        declined_ids()
     );
     live.close().await.unwrap();
     codex.shutdown().await;

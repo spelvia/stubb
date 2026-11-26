@@ -868,6 +868,12 @@ fn question_answers(
                 format!("{:?} is not an option of {:?}", label, question.question),
             ));
         }
+        if !question.multi_select && answer.selected.len() > 1 {
+            return Err(request::invalid(
+                id,
+                format!("{:?} takes one option", question.question),
+            ));
+        }
         let values = answer.values();
         if values.is_empty() {
             continue;
@@ -1249,6 +1255,29 @@ mod tests {
             ),
             Err(crate::Error::InvalidDecision { .. })
         ));
+    }
+
+    #[test]
+    fn a_single_select_question_takes_one_option() {
+        let input = json!({ "questions": [
+            { "question": "Which library?", "header": "Library", "multiSelect": false,
+              "options": [{ "label": "chrono", "description": "" }, { "label": "time", "description": "" }] }
+        ] });
+        let pending = pending_for("AskUserQuestion", input);
+        let answer = |labels: &[&str]| {
+            permission_response(
+                "req-1",
+                &pending,
+                &Decision::Answer {
+                    answers: vec![Answer::selected("Which library?", labels.iter().copied())],
+                },
+            )
+        };
+        assert!(matches!(
+            answer(&["chrono", "time"]),
+            Err(crate::Error::InvalidDecision { .. })
+        ));
+        assert!(answer(&["time"]).is_ok());
     }
 
     #[test]

@@ -699,3 +699,20 @@ fn native_initialization_reports_model_without_accepting_synthetic_placeholders(
         Some("claude-sonnet-4-6")
     );
 }
+
+#[test]
+fn a_title_reaches_both_the_event_and_the_record_subscribers() {
+    let live = Attachment::new("root");
+    let mut records = live.subscribe_records();
+    let mut legacy = live.subscribe();
+    drain(&mut records);
+    let title = session::Event::Title {
+        title: "Fix the login bug".to_owned(),
+    };
+    live.announce(title.clone());
+    assert_eq!(drain(&mut legacy), std::slice::from_ref(&title));
+    assert!(drain(&mut records).iter().any(|record| matches!(
+        &record.event,
+        obs::Event::Activity { event, .. } if *event == title
+    )));
+}

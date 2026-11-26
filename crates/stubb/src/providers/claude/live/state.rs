@@ -251,6 +251,13 @@ impl State {
         }
     }
 
+    /// A session-wide event no native message carries, such as a title read
+    /// from the transcript: the root agent's, for both kinds of subscriber.
+    pub(super) fn announce(&mut self, event: session::Event, records: &Records, legacy: &Legacy) {
+        let root = self.root.agent.id.clone();
+        self.apply(&root, event, records, legacy);
+    }
+
     fn apply(&mut self, id: &str, event: session::Event, records: &Records, legacy: &Legacy) {
         if self.closed {
             return;
