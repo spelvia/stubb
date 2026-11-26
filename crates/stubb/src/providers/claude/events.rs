@@ -46,6 +46,10 @@ pub(super) struct SessionState {
     /// A compaction was reported started and has not ended.
     compacting: bool,
     has_reply: bool,
+    /// Task notifications Claude Code runs as queries of their own (a
+    /// background task stopped when an earlier process ended): each ends in
+    /// a `result` with no turns that is not the end of the host's turn.
+    notification_queries: u32,
 }
 
 struct Block {
@@ -183,6 +187,25 @@ impl SessionState {
         if let Some(turn_id) = text(message, "user_message_uuid") {
             self.turn_id = Some(turn_id);
         }
+        // Claude Code works without the host's input too, such as after a
+        // background task ends: that work is a turn of its own.
+        let working = matches!(
+            message.get("type").and_then(Value::as_str),
+            Some("assistant" | "stream_event")
+        );
+        if working && self.turn_id.is_none() {
+            let turn_id =
+                text(message, "uuid").unwrap_or_else(|| format!("claude-{}", uuid::Uuid::new_v4()));
+            let mut events = self.delegated_turn(&turn_id);
+            events.insert(
+                0,
+                Event::Status {
+                    status: session::Status::Active,
+                },
+            );
+            events.extend(self.content(message));
+            return events;
+        }
         self.content(message)
     }
 
@@ -197,9 +220,14 @@ impl SessionState {
             Some("stream_event") => self.stream(message.get("event").unwrap_or(&Value::Null)),
             Some("assistant") => self.assistant(message),
             Some("user") => self.tool_results(message),
+            Some("result") if self.notification_result(message) => vec![raw(message)],
             Some("result") => self.result(message),
             Some("system") => match text(message, "subtype").as_deref() {
                 Some("status") => self.status(message),
+                Some("task_notification") => {
+                    self.notification_queries += 1;
+                    vec![raw(message)]
+                }
                 Some("compact_boundary") => self.compacted(message),
                 _ => vec![raw(message)],
             },
@@ -209,6 +237,16 @@ impl SessionState {
             self.has_reply = true;
         }
         events
+    }
+
+    /// Whether a `result` ends a task notification's own query rather than
+    /// the host's turn: one with no turns, after such a notification.
+    fn notification_result(&mut self, message: &Value) -> bool {
+        if self.notification_queries == 0 {
+            return false;
+        }
+        self.notification_queries -= 1;
+        message.get("num_turns").and_then(Value::as_u64) == Some(0)
     }
 
     fn turn(&self) -> String {
@@ -687,6 +725,66 @@ mod tests {
 
     fn message(state: &mut SessionState, message: Value) -> Vec<Event> {
         state.message(&message)
+    }
+
+    fn turn_ends(events: &[Event]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::TurnEnd { turn } => Some(turn.id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// As Claude Code 2.1.330 resumes a session whose background task the
+    /// last process left running: the stopped task's notification runs as a
+    /// query of its own before the host's message.
+    #[test]
+    fn a_stale_task_notification_does_not_end_the_hosts_turn() {
+        let mut state = SessionState::default();
+        let mut events = state.turn_started("u1", "Reply with just: two");
+        for line in [
+            json!({ "type": "system", "subtype": "task_notification", "task_id": "b1",
+                    "status": "stopped", "summary": "Background shell command didn't finish" }),
+            json!({ "type": "system", "subtype": "init" }),
+            json!({ "type": "result", "subtype": "success", "num_turns": 0, "result": "",
+                    "duration_ms": 46, "is_error": false }),
+            json!({ "type": "system", "subtype": "init" }),
+            json!({ "type": "assistant", "parent_tool_use_id": null, "uuid": "a1",
+                    "message": { "id": "m1", "role": "assistant",
+                                 "content": [{ "type": "text", "text": "two" }] } }),
+            json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "two",
+                    "duration_ms": 1173, "is_error": false }),
+        ] {
+            events.extend(message(&mut state, line));
+        }
+        assert_eq!(turn_ends(&events), ["u1"]);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::ItemEnd { turn_id, item: Item::AgentMessage { text, .. } } if turn_id == "u1" && text == "two"
+        )));
+    }
+
+    #[test]
+    fn work_without_the_hosts_input_is_a_turn_of_its_own() {
+        let mut state = SessionState::default();
+        let mut events = message(
+            &mut state,
+            json!({ "type": "assistant", "parent_tool_use_id": null, "uuid": "a2",
+                    "message": { "id": "m2", "role": "assistant",
+                                 "content": [{ "type": "text", "text": "The task finished." }] } }),
+        );
+        assert!(matches!(
+            &events[..2],
+            [Event::Status { status: session::Status::Active }, Event::TurnStart { turn_id }] if turn_id == "a2"
+        ));
+        events.extend(message(
+            &mut state,
+            json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "",
+                    "duration_ms": 900, "is_error": false }),
+        ));
+        assert_eq!(turn_ends(&events), ["a2"]);
     }
 
     fn stream(state: &mut SessionState, event: Value) -> Vec<Event> {
