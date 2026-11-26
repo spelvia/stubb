@@ -19,11 +19,11 @@ pub(super) fn from_notification(method: &str, params: Value) -> Event {
         "thread/closed" => Some(Event::Closed {
             reason: CloseReason::Agent,
         }),
-        // A thread renamed (`thread/name/set`, from any client): its title.
-        // Clearing the name sends no title; the host keeps the one it has.
-        "thread/name/updated" => ["threadName", "name"]
-            .iter()
-            .find_map(|key| params[*key].as_str())
+        // A thread renamed (`thread/name/set`, from any client; Codex does
+        // not name threads itself): its title. Clearing the name sends no
+        // title; the host keeps the one it has.
+        "thread/name/updated" => params["threadName"]
+            .as_str()
             .map(str::trim)
             .filter(|title| !title.is_empty())
             .map(|title| Event::Title {
