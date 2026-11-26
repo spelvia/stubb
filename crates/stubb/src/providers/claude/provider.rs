@@ -1,5 +1,7 @@
 use super::driver::ClaudeSession;
-use super::{PermissionMode, Permissions, fork, history, process, store, stored_tasks, usage};
+use super::{
+    PermissionMode, Permissions, fork, history, process, store, stored_tasks, title, usage,
+};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -377,6 +379,7 @@ impl Claude {
             live.retain(|_, process| process.strong_count() > 0);
             live.insert(summary.id.clone(), Arc::downgrade(&process));
         }
+        self.follow_title(&process, &summary);
 
         let text = |key: &str| init.get(key).and_then(Value::as_str).map(str::to_owned);
         let info = session::Info {
@@ -407,6 +410,53 @@ impl Claude {
             request_timeout: self.config.request_timeout,
         };
         Ok(Session::new(info, Arc::new(driver)))
+    }
+
+    /// Announces the session's title when Claude Code writes a new one to
+    /// the transcript (`/rename`, or a generated title), read after each turn.
+    /// Ends with the process: it holds only a receiver.
+    fn follow_title(&self, process: &Arc<ClaudeProcess>, summary: &session::Summary) {
+        let mut events = process.subscribe();
+        let announce = Arc::downgrade(process);
+        let store = Arc::clone(&self.store);
+        let id = summary.id.clone();
+        let mut shown = summary.title.clone();
+        tokio::spawn(async move {
+            let mut reader = Some(title::TitleReader::default());
+            loop {
+                match events.recv().await {
+                    Ok(session::Event::TurnEnd { .. })
+                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+                let Some(mut taken) = reader.take() else {
+                    break;
+                };
+                let store = Arc::clone(&store);
+                let file_id = id.clone();
+                let read = blocking(move || {
+                    let found = store.find(&file_id)?;
+                    let title = match &found {
+                        Some(file) => taken.read(&file.path)?,
+                        None => None,
+                    };
+                    Ok((taken, title))
+                })
+                .await;
+                let Ok((taken, title)) = read else { break };
+                reader = Some(taken);
+                if title.is_some() && title != shown {
+                    shown.clone_from(&title);
+                    let Some(process) = announce.upgrade() else {
+                        break;
+                    };
+                    process.announce(session::Event::Title {
+                        title: title.unwrap_or_default(),
+                    });
+                }
+            }
+        });
     }
 
     pub(super) async fn load(&self, id: &str) -> Result<(store::SessionFile, Vec<Value>)> {
@@ -503,10 +553,11 @@ fn catalog_model(model: &Value, fast_note: &Option<String>) -> catalog::Model {
         })
         .collect();
     let fast = model.get("supportsFastMode").and_then(Value::as_bool) == Some(true);
+    let (label, description) = versioned(text("displayName"), text("description"));
     catalog::Model {
         is_default: id == "default",
-        label: text("displayName"),
-        description: text("description"),
+        label,
+        description,
         efforts,
         default_effort: None,
         fast_mode: if fast {
@@ -520,6 +571,29 @@ fn catalog_model(model: &Value, fast_note: &Option<String>) -> catalog::Model {
             FastMode::Unavailable
         },
         id,
+    }
+}
+
+/// Claude Code names a model by its family ("Opus") and puts the version at
+/// the start of the description ("Opus 5.5 · Best for everyday, complex
+/// tasks"): the label takes the versioned name, the description the rest.
+/// Anything else is kept as Claude Code gave it.
+fn versioned(name: String, description: String) -> (String, String) {
+    let Some((head, rest)) = description.split_once(" · ") else {
+        return (name, description);
+    };
+    let version = head
+        .strip_prefix(name.as_str())
+        .and_then(|tail| tail.strip_prefix(' '));
+    match version {
+        Some(version)
+            if !name.is_empty()
+                && version.chars().next().is_some_and(|c| c.is_ascii_digit())
+                && !version.contains(' ') =>
+        {
+            (head.to_owned(), rest.to_owned())
+        }
+        _ => (name, description),
     }
 }
 
@@ -616,5 +690,47 @@ impl Provider for Claude {
 
     fn shutdown(&self) -> BoxFuture<'_, ()> {
         Box::pin(Claude::shutdown(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// As Claude Code 2.1.330 lists its models.
+    #[test]
+    fn labels_models_with_their_version() {
+        let model = |id: &str, name: &str, description: &str| {
+            catalog_model(
+                &json!({ "value": id, "displayName": name, "description": description }),
+                &None,
+            )
+        };
+        let opus = model(
+            "opus",
+            "Opus",
+            "Opus 5.5 · Best for everyday, complex tasks",
+        );
+        assert_eq!(opus.label, "Opus 5.5");
+        assert_eq!(opus.description, "Best for everyday, complex tasks");
+        let fable = model(
+            "claude-fable-5-2[1m]",
+            "Fable",
+            "Fable 5.2 · Most capable for your hardest and longest-running tasks",
+        );
+        assert_eq!(fable.label, "Fable 5.2");
+        let default = model(
+            "default",
+            "Default (recommended)",
+            "Opus 5.5 · Best for everyday, complex tasks",
+        );
+        assert_eq!(default.label, "Default (recommended)");
+        assert_eq!(
+            default.description,
+            "Opus 5.5 · Best for everyday, complex tasks"
+        );
+        let plain = model("sonnet", "Sonnet", "Efficient for routine tasks");
+        assert_eq!(plain.label, "Sonnet");
+        assert_eq!(plain.description, "Efficient for routine tasks");
     }
 }

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use agent_client_protocol::schema::MaybeUndefined;
 use agent_client_protocol::v1::schema as wire;
 use agent_client_protocol::{self as sdk, Agent, Client, ConnectTo, Lines, UntypedMessage};
 use serde_json::Value;
@@ -618,6 +619,15 @@ impl State {
                         .into_iter()
                         .collect()
                 }
+                // A title is the session's, not a turn's.
+                (wire::SessionUpdate::SessionInfoUpdate(info), _) => match &info.title {
+                    MaybeUndefined::Value(title) if !title.trim().is_empty() => {
+                        vec![session::Event::Title {
+                            title: title.trim().to_owned(),
+                        }]
+                    }
+                    _ => vec![],
+                },
                 (wire::SessionUpdate::UsageUpdate(usage), None) => vec![session::Event::Usage {
                     turn_id: String::new(),
                     usage: events::context_usage(usage),

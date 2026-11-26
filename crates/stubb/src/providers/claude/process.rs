@@ -224,6 +224,10 @@ impl ClaudeProcess {
         self.shared.observation.subscribe()
     }
 
+    pub(super) fn announce(&self, event: session::Event) {
+        self.shared.observation.announce(event);
+    }
+
     pub(super) fn restore_observation(
         &self,
         stored: super::agents::Stored,

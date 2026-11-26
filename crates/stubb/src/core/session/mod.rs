@@ -421,6 +421,7 @@ mod tests {
                 "type": "answered", "decision": { "type": "deny", "message": null }
             } }),
             json!({ "type": "raw", "name": "x", "payload": { "a": 1 } }),
+            json!({ "type": "title", "title": "Fix the login bug" }),
         ];
         for json in stored {
             let event: Event = serde_json::from_value(json.clone()).unwrap();

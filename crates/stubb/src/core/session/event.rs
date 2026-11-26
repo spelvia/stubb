@@ -72,6 +72,9 @@ pub enum Event {
         turn_id: Option<String>,
         compaction: turn::Compaction,
     },
+    /// The agent named the session, or renamed it: the title to show for
+    /// it. Sent when a provider reports one, not for every session.
+    Title { title: String },
     /// The agent reported an error. While `retrying`, the turn continues.
     Error {
         turn_id: Option<String>,
