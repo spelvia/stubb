@@ -46,10 +46,25 @@ pub(super) struct SessionState {
     /// A compaction was reported started and has not ended.
     compacting: bool,
     has_reply: bool,
-    /// Task notifications Claude Code runs as queries of their own (a
-    /// background task stopped when an earlier process ended): each ends in
-    /// a `result` with no turns that is not the end of the host's turn.
-    notification_queries: u32,
+    /// A task notification arrived and no query has started since: the next
+    /// query (its `system/init`) may be Claude Code running it on its own,
+    /// as it does on resume for a background task the last process left.
+    notification_pending: bool,
+    /// The query running now: started for a notification, and whether it
+    /// has produced anything.
+    query: Query,
+    /// The open turn is one Claude Code started without the host's input.
+    automatic: bool,
+    /// The next `result` ends an automatic turn already ended when the
+    /// host's turn began, not the host's turn.
+    stale_result: bool,
+}
+
+/// One query Claude Code runs, from its `system/init` to its `result`.
+#[derive(Default)]
+struct Query {
+    from_notification: bool,
+    output: bool,
 }
 
 struct Block {
@@ -92,13 +107,33 @@ impl SessionState {
         turn_id: &str,
         content: Vec<UserContent>,
     ) -> Vec<Event> {
+        // An automatic turn still open ends here: the host's turn takes over,
+        // and that turn's own result, still to come, ends nothing.
+        let mut ended = Vec::new();
+        if self.automatic
+            && let Some(open) = self.turn_id.take()
+        {
+            self.automatic = false;
+            self.stale_result = true;
+            ended.push(Event::TurnEnd {
+                turn: turn::Turn {
+                    id: open,
+                    status: turn::Status::Completed,
+                    items: Vec::new(),
+                    started_at: None,
+                    completed_at: None,
+                    duration_ms: None,
+                    error: None,
+                },
+            });
+        }
         self.has_reply = false;
         self.turn_id = Some(turn_id.to_owned());
         let item = Item::UserMessage {
             id: turn_id.to_owned(),
             content,
         };
-        vec![
+        ended.extend([
             Event::Status {
                 status: session::Status::Active,
             },
@@ -109,7 +144,8 @@ impl SessionState {
                 turn_id: turn_id.to_owned(),
                 item,
             },
-        ]
+        ]);
+        ended
     }
 
     /// A turn that was announced but could not be delivered.
@@ -193,10 +229,14 @@ impl SessionState {
             message.get("type").and_then(Value::as_str),
             Some("assistant" | "stream_event")
         );
+        if working {
+            self.query.output = true;
+        }
         if working && self.turn_id.is_none() {
             let turn_id =
                 text(message, "uuid").unwrap_or_else(|| format!("claude-{}", uuid::Uuid::new_v4()));
             let mut events = self.delegated_turn(&turn_id);
+            self.automatic = true;
             events.insert(
                 0,
                 Event::Status {
@@ -220,12 +260,19 @@ impl SessionState {
             Some("stream_event") => self.stream(message.get("event").unwrap_or(&Value::Null)),
             Some("assistant") => self.assistant(message),
             Some("user") => self.tool_results(message),
-            Some("result") if self.notification_result(message) => vec![raw(message)],
+            Some("result") if self.ends_no_turn(message) => vec![raw(message)],
             Some("result") => self.result(message),
             Some("system") => match text(message, "subtype").as_deref() {
                 Some("status") => self.status(message),
                 Some("task_notification") => {
-                    self.notification_queries += 1;
+                    self.notification_pending = true;
+                    vec![raw(message)]
+                }
+                Some("init") => {
+                    self.query = Query {
+                        from_notification: std::mem::take(&mut self.notification_pending),
+                        output: false,
+                    };
                     vec![raw(message)]
                 }
                 Some("compact_boundary") => self.compacted(message),
@@ -239,14 +286,19 @@ impl SessionState {
         events
     }
 
-    /// Whether a `result` ends a task notification's own query rather than
-    /// the host's turn: one with no turns, after such a notification.
-    fn notification_result(&mut self, message: &Value) -> bool {
-        if self.notification_queries == 0 {
-            return false;
+    /// Whether a `result` ends no turn of the host's: the result of an
+    /// automatic turn the host's turn already ended, or of a query that did
+    /// nothing, run for a task notification or with no turn open. A query
+    /// that did something always ends its turn.
+    fn ends_no_turn(&mut self, message: &Value) -> bool {
+        let query = std::mem::take(&mut self.query);
+        // Notifications handled within this query are done with.
+        self.notification_pending = false;
+        if std::mem::take(&mut self.stale_result) {
+            return true;
         }
-        self.notification_queries -= 1;
-        message.get("num_turns").and_then(Value::as_u64) == Some(0)
+        let idle = !query.output && message.get("num_turns").and_then(Value::as_u64) == Some(0);
+        idle && (query.from_notification || self.turn_id.is_none())
     }
 
     fn turn(&self) -> String {
@@ -604,6 +656,7 @@ impl SessionState {
         });
 
         self.turn_id = None;
+        self.automatic = false;
         self.blocks.clear();
         // A turn without model calls, such as `/compact` or one interrupted
         // before its first call, says nothing about the context.
@@ -763,6 +816,60 @@ mod tests {
         assert!(events.iter().any(|event| matches!(
             event,
             Event::ItemEnd { turn_id, item: Item::AgentMessage { text, .. } } if turn_id == "u1" && text == "two"
+        )));
+    }
+
+    fn assistant(uuid: &str, text: &str) -> Value {
+        json!({ "type": "assistant", "parent_tool_use_id": null, "uuid": uuid,
+                "message": { "id": format!("m-{uuid}"), "role": "assistant",
+                             "content": [{ "type": "text", "text": text }] } })
+    }
+
+    #[test]
+    fn a_host_turn_ends_an_open_automatic_turn_whose_result_then_ends_nothing() {
+        let mut state = SessionState::default();
+        let mut events = message(&mut state, assistant("a1", "The task finished."));
+        events.extend(state.turn_started("h1", "Next, please"));
+        // The automatic turn's own result, then the host's query.
+        for line in [
+            json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "",
+                    "is_error": false }),
+            json!({ "type": "system", "subtype": "init" }),
+            assistant("a2", "Done."),
+            json!({ "type": "result", "subtype": "success", "num_turns": 1, "result": "Done.",
+                    "is_error": false }),
+        ] {
+            events.extend(message(&mut state, line));
+        }
+        assert_eq!(turn_ends(&events), ["a1", "h1"]);
+    }
+
+    #[test]
+    fn notifications_handled_in_a_turn_leave_the_next_host_command_its_end() {
+        let mut state = SessionState::default();
+        let mut events = state.turn_started("u1", "Wait for the tasks");
+        for line in [
+            json!({ "type": "system", "subtype": "task_notification", "task_id": "b1", "status": "completed" }),
+            json!({ "type": "system", "subtype": "task_notification", "task_id": "b2", "status": "completed" }),
+            assistant("a1", "Both finished."),
+            json!({ "type": "result", "subtype": "success", "num_turns": 2, "result": "Both finished.",
+                    "is_error": false }),
+        ] {
+            events.extend(message(&mut state, line));
+        }
+        // A command answered without a model call, such as `/compact`.
+        events.extend(state.turn_started("u2", "/compact"));
+        for line in [
+            json!({ "type": "system", "subtype": "init" }),
+            json!({ "type": "result", "subtype": "success", "num_turns": 0, "result": "Compacted.",
+                    "is_error": false }),
+        ] {
+            events.extend(message(&mut state, line));
+        }
+        assert_eq!(turn_ends(&events), ["u1", "u2"]);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::ItemEnd { turn_id, item: Item::AgentMessage { text, .. } } if turn_id == "u2" && text == "Compacted."
         )));
     }
 
