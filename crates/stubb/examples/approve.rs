@@ -139,15 +139,30 @@ async fn ask(request: &Request, answers: &mut Lines<BufReader<Stdin>>) -> stubb:
                 for (number, option) in question.options.iter().enumerate() {
                     println!("  {}. {}", number + 1, option.label);
                 }
-                let line = read("Option numbers, or your own answer: ").await?;
-                let picked: Option<Vec<String>> = line
-                    .split([',', ' '])
-                    .filter(|part| !part.is_empty())
-                    .map(|part| {
-                        let number: usize = part.parse().ok()?;
-                        Some(question.options.get(number.checked_sub(1)?)?.label.clone())
+                let (line, picked) = loop {
+                    let line = read(if question.multi_select {
+                        "Option numbers, or your own answer: "
+                    } else {
+                        "Option number, or your own answer: "
                     })
-                    .collect();
+                    .await?;
+                    let picked: Option<Vec<String>> = line
+                        .split([',', ' '])
+                        .filter(|part| !part.is_empty())
+                        .map(|part| {
+                            let number: usize = part.parse().ok()?;
+                            Some(question.options.get(number.checked_sub(1)?)?.label.clone())
+                        })
+                        .collect();
+                    // One option only, unless the question takes several.
+                    if !question.multi_select
+                        && picked.as_ref().is_some_and(|labels| labels.len() > 1)
+                    {
+                        println!("Pick one option.");
+                        continue;
+                    }
+                    break (line, picked);
+                };
                 chosen.push(match picked {
                     Some(labels) if !labels.is_empty() => Answer::selected(&question.id, labels),
                     _ => Answer::other(&question.id, line),
