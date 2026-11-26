@@ -4,9 +4,16 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::turn::{FileChange, FileChangeKind, ToolDetail};
+use crate::turn::{FileChange, FileChangeKind, McpCall, McpResult, ToolDetail};
 
-pub(super) fn detail(name: &str, input: &Value, output: Option<String>) -> ToolDetail {
+/// `result` is the content of the call's `tool_result`, once it has one.
+pub(super) fn detail(
+    name: &str,
+    input: &Value,
+    result: Option<&Value>,
+    failed: bool,
+) -> ToolDetail {
+    let output = result.and_then(result_text);
     let text = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or_default();
     match name {
         "Bash" => ToolDetail::Command {
@@ -16,19 +23,29 @@ pub(super) fn detail(name: &str, input: &Value, output: Option<String>) -> ToolD
             // Claude Code reports failure through the tool result, not an exit code.
             exit_code: None,
         },
-        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ToolDetail::FileChange {
+        "NotebookEdit" => ToolDetail::NotebookEdit {
+            path: PathBuf::from(text("notebook_path")),
+            cell_id: input["cell_id"].as_str().map(str::to_owned),
+            cell_type: input["cell_type"].as_str().map(str::to_owned),
+            source: text("new_source").to_owned(),
+            operation: input["edit_mode"].as_str().map(str::to_owned),
+        },
+        "Edit" | "MultiEdit" | "Write" => ToolDetail::FileChange {
             changes: file_changes(name, input),
         },
         _ => match name
             .strip_prefix("mcp__")
             .and_then(|rest| rest.split_once("__"))
         {
-            Some((server, tool)) => ToolDetail::Mcp {
-                server: server.to_owned(),
-                tool: tool.to_owned(),
-                arguments: input.clone(),
-                error: None,
-            },
+            Some((server, tool)) => {
+                let mut call = McpCall::new(server, tool, input.clone());
+                if failed {
+                    call.error = output.or_else(|| Some("The tool call failed.".to_owned()));
+                } else {
+                    call.result = result.map(McpResult::from_content);
+                }
+                ToolDetail::McpCall(call)
+            }
             None => ToolDetail::Other {
                 name: name.to_owned(),
                 input: input.clone(),
@@ -81,10 +98,6 @@ fn file_changes(name: &str, input: &Value) -> Vec<FileChange> {
                 .join("\n");
             (FileChangeKind::Update { move_path: None }, diff)
         }
-        "NotebookEdit" => (
-            FileChangeKind::Update { move_path: None },
-            prefixed("+", &text(input, "new_source")),
-        ),
         _ => (
             FileChangeKind::Update { move_path: None },
             replace_diff(&text(input, "old_string"), &text(input, "new_string")),
@@ -112,21 +125,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn notebook_changes_keep_cell_identity_and_source() {
+        let detail = detail(
+            "NotebookEdit",
+            &json!({"notebook_path":"analysis.ipynb","cell_id":"cell-7","cell_type":"markdown","new_source":"# Result","edit_mode":"replace"}),
+            None,
+            false,
+        );
+        assert!(
+            matches!(detail,ToolDetail::NotebookEdit { cell_id,source,.. } if cell_id.as_deref()==Some("cell-7") && source=="# Result")
+        );
+    }
+
+    #[test]
     fn maps_known_tools() {
         assert!(matches!(
-            detail("Bash", &json!({ "command": "ls" }), Some("a\nb".into())),
+            detail("Bash", &json!({ "command": "ls" }), Some(&json!("a\nb")), false),
             ToolDetail::Command { command, output: Some(_), .. } if command == "ls"
         ));
         assert!(matches!(
-            detail("Edit", &json!({ "file_path": "/a.rs", "old_string": "x", "new_string": "y" }), None),
+            detail("Edit", &json!({ "file_path": "/a.rs", "old_string": "x", "new_string": "y" }), None, false),
             ToolDetail::FileChange { changes } if changes[0].diff == "@@\n-x\n+y"
         ));
         assert!(matches!(
-            detail("mcp__github__create_issue", &json!({}), None),
-            ToolDetail::Mcp { server, tool, .. } if server == "github" && tool == "create_issue"
+            detail("mcp__github__create_issue", &json!({}), None, false),
+            ToolDetail::McpCall(call) if call.server == "github" && call.tool == "create_issue" && call.result.is_none()
+        ));
+        let ToolDetail::McpCall(call) = detail(
+            "mcp__github__create_issue",
+            &json!({}),
+            Some(&json!([{ "type": "text", "text": "#12" }])),
+            false,
+        ) else {
+            panic!("expected an MCP call");
+        };
+        assert_eq!(call.result.unwrap().text().as_deref(), Some("#12"));
+        assert!(matches!(
+            detail("mcp__github__create_issue", &json!({}), Some(&json!("denied")), true),
+            ToolDetail::McpCall(call) if call.error.as_deref() == Some("denied") && call.result.is_none()
         ));
         assert!(matches!(
-            detail("Read", &json!({ "file_path": "/a.rs" }), None),
+            detail("Read", &json!({ "file_path": "/a.rs" }), None, false),
             ToolDetail::Other { name, .. } if name == "Read"
         ));
     }

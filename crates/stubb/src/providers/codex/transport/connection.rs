@@ -15,8 +15,8 @@ use tokio::task::JoinHandle;
 use super::rpc::{self, Handler};
 use super::types::{ClientInfo, InitializeCapabilities, InitializeParams, InitializeResponse};
 use crate::process::Environment;
-use crate::providers::codex::events;
 use crate::providers::codex::live::{Attachment, Router, tasks};
+use crate::providers::codex::{events, requests};
 use crate::{Result, session};
 
 pub(in crate::providers::codex) struct AppServer {
@@ -214,6 +214,15 @@ struct CodexHandler(Arc<Router>);
 
 impl Handler for CodexHandler {
     fn route_notification(&self, method: &str, params: &Value) -> bool {
+        if method == "serverRequest/resolved"
+            && let (Some(thread), Some(id)) = (
+                params.get("threadId").and_then(Value::as_str),
+                params.get("requestId"),
+            )
+            && let Some(root) = self.0.root(thread)
+        {
+            root.withdraw(&requests::key(id));
+        }
         self.0.notification(method, params);
         true
     }
@@ -234,8 +243,25 @@ impl Handler for CodexHandler {
         vec![events::from_notification(method, params)]
     }
 
-    fn request(&self, id: &Value, method: &str, params: &Value) -> (Value, Option<session::Event>) {
+    /// Forwards the request to the host when its session asks for that,
+    /// and declines it otherwise.
+    fn request(
+        &self,
+        id: &Value,
+        method: &str,
+        params: &Value,
+    ) -> (Option<Value>, Option<session::Event>) {
+        let root = self
+            .session_id(params)
+            .and_then(|thread| self.0.root(thread))
+            .filter(|root| root.forwards_requests());
+        if let Some(root) = root
+            && let Some((request, pending)) = requests::forward(id, method, params)
+        {
+            root.forward(request, pending);
+            return (None, None);
+        }
         let (reply, event) = events::decline_request(id, method, params);
-        (reply, Some(event))
+        (Some(reply), Some(event))
     }
 }

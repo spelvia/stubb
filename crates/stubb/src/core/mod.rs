@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod discovery;
 pub(crate) mod error;
+pub mod mcp;
 pub mod observation;
 pub mod permission;
 pub mod provider;

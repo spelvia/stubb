@@ -24,6 +24,15 @@ pub(super) struct Attachment {
     state: Mutex<State>,
     legacy: broadcast::Sender<session::Event>,
     records: broadcast::Sender<obs::Record>,
+    requests: Mutex<Requests>,
+}
+
+/// Server requests forwarded to the host and not answered yet.
+#[derive(Default)]
+struct Requests {
+    /// The session forwards requests ([`session::Settings::forward_requests`]).
+    forward: bool,
+    pending: std::collections::HashMap<String, super::requests::Pending>,
 }
 
 impl Attachment {
@@ -32,7 +41,85 @@ impl Attachment {
             state: Mutex::new(State::new(info)),
             legacy: broadcast::channel(BUFFER).0,
             records: broadcast::channel(BUFFER).0,
+            requests: Mutex::new(Requests::default()),
         }
+    }
+
+    /// Whether server requests go to the host rather than being declined.
+    pub(super) fn set_forward_requests(&self, forward: bool) {
+        self.requests.lock().expect("requests lock").forward = forward;
+    }
+
+    pub(super) fn forwards_requests(&self) -> bool {
+        !self.is_closed() && self.requests.lock().expect("requests lock").forward
+    }
+
+    /// Keeps a forwarded request until the host answers, and reports it on
+    /// the session's stream, where the host answers even a sub-agent's.
+    pub(super) fn forward(
+        &self,
+        request: crate::request::Request,
+        pending: super::requests::Pending,
+    ) {
+        self.requests
+            .lock()
+            .expect("requests lock")
+            .pending
+            .insert(request.id.clone(), pending);
+        self.emit(session::Event::Request { request });
+    }
+
+    /// Runs `answer` on a pending request and removes it when it succeeds.
+    pub(super) fn answer<T>(
+        &self,
+        id: &str,
+        answer: impl FnOnce(&super::requests::Pending) -> crate::Result<T>,
+    ) -> crate::Result<(super::requests::Pending, T)> {
+        let mut requests = self.requests.lock().expect("requests lock");
+        let not_found = || crate::Error::RequestNotFound {
+            session_id: self.root_id(),
+            id: id.to_owned(),
+        };
+        let value = answer(requests.pending.get(id).ok_or_else(not_found)?)?;
+        let pending = requests.pending.remove(id).ok_or_else(not_found)?;
+        Ok((pending, value))
+    }
+
+    /// Puts back a request whose reply never left Stubb, so it can be
+    /// answered again.
+    pub(super) fn restore(&self, id: &str, pending: super::requests::Pending) {
+        self.requests
+            .lock()
+            .expect("requests lock")
+            .pending
+            .entry(id.to_owned())
+            .or_insert(pending);
+    }
+
+    /// A pending request ended without an answer.
+    pub(super) fn withdraw(&self, id: &str) {
+        let removed = self
+            .requests
+            .lock()
+            .expect("requests lock")
+            .pending
+            .remove(id);
+        if removed.is_some() {
+            self.emit(session::Event::RequestResolved {
+                id: id.to_owned(),
+                outcome: crate::request::Outcome::Withdrawn,
+            });
+        }
+    }
+
+    fn root_id(&self) -> String {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .root
+            .agent
+            .id
+            .clone()
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
@@ -126,6 +213,21 @@ impl Attachment {
     }
 
     pub(super) fn emit_for(&self, id: &str, event: session::Event) {
+        if matches!(event, session::Event::Closed { .. }) && id == self.root_id() {
+            // Withdraw what the host can no longer answer, while the stream
+            // still takes events.
+            let pending: Vec<String> = self
+                .requests
+                .lock()
+                .expect("requests lock")
+                .pending
+                .keys()
+                .cloned()
+                .collect();
+            for id in pending {
+                self.withdraw(&id);
+            }
+        }
         self.state
             .lock()
             .expect("observation lock")
@@ -135,14 +237,7 @@ impl Attachment {
 
 impl EventSink for Attachment {
     fn emit(&self, event: session::Event) {
-        let id = self
-            .state
-            .lock()
-            .expect("observation lock")
-            .root
-            .agent
-            .id
-            .clone();
+        let id = self.root_id();
         self.emit_for(&id, event);
     }
 }

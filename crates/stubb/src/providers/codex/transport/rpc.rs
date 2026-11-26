@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -53,8 +53,15 @@ pub(in crate::providers::codex) trait Handler:
     /// Events for one notification about a registered session; may be none or several.
     fn notification(&self, method: &str, params: Value) -> Vec<session::Event>;
 
-    /// Reply to a request from the child, and an optional event for its session.
-    fn request(&self, id: &Value, method: &str, params: &Value) -> (Value, Option<session::Event>);
+    /// Reply to a request from the child, and an optional event for its
+    /// session. No reply means the provider answers later with
+    /// [`Connection::reply`].
+    fn request(
+        &self,
+        id: &Value,
+        method: &str,
+        params: &Value,
+    ) -> (Option<Value>, Option<session::Event>);
 
     /// Called when a session stops being routed, to drop per-session state.
     fn session_closed(&self, _session_id: &str) {}
@@ -182,7 +189,10 @@ impl Connection {
 
         let sent = self
             .shared
-            .write(&json!({ "id": id, "method": method, "params": params }))
+            .write(
+                &json!({ "id": id, "method": method, "params": params }),
+                None,
+            )
             .await;
         if let Err(error) = sent {
             self.shared
@@ -221,8 +231,24 @@ impl Connection {
         })
     }
 
+    /// Answers a request the child sent, with its JSON-RPC `result`.
+    /// Replies to a server request, setting `started` once bytes may reach
+    /// Codex: a failure before then (no stdin, or the call dropped while
+    /// waiting its turn to write) sent nothing, so the request can be
+    /// answered again.
+    pub(in crate::providers::codex) async fn reply(
+        &self,
+        id: &Value,
+        result: Value,
+        started: &AtomicBool,
+    ) -> Result<()> {
+        self.shared
+            .write(&json!({ "id": id, "result": result }), Some(started))
+            .await
+    }
+
     pub(in crate::providers::codex) async fn notify(&self, method: &str) -> Result<()> {
-        self.shared.write(&json!({ "method": method })).await
+        self.shared.write(&json!({ "method": method }), None).await
     }
 
     /// Routes events for `session_id` directly into its provider reducer.
@@ -269,7 +295,7 @@ impl Drop for Connection {
 }
 
 impl Shared {
-    async fn write(&self, message: &Value) -> Result<()> {
+    async fn write(&self, message: &Value, started: Option<&AtomicBool>) -> Result<()> {
         let mut stdin = self.stdin.lock().await;
         let Some(stdin) = stdin.as_mut() else {
             return Err(Error::ProcessExited {
@@ -278,6 +304,9 @@ impl Shared {
         };
         let mut line = message.to_string().into_bytes();
         line.push(b'\n');
+        if let Some(started) = started {
+            started.store(true, Ordering::SeqCst);
+        }
         stdin.write_all(&line).await?;
         stdin.flush().await?;
         Ok(())
@@ -311,7 +340,9 @@ impl Shared {
             (Some(id), Some(method)) => {
                 let params = params();
                 let (reply, event) = self.handler.request(id, method, &params);
-                let _ = self.write(&reply).await;
+                if let Some(reply) = reply {
+                    let _ = self.write(&reply, None).await;
+                }
                 if let Some(event) = event
                     && !self.handler.route_event(&params, &event)
                 {
@@ -420,9 +451,14 @@ mod tests {
                 payload: params,
             }]
         }
-        fn request(&self, id: &Value, method: &str, _: &Value) -> (Value, Option<session::Event>) {
+        fn request(
+            &self,
+            id: &Value,
+            method: &str,
+            _: &Value,
+        ) -> (Option<Value>, Option<session::Event>) {
             (
-                json!({"id": id, "result": {}}),
+                Some(json!({"id": id, "result": {}})),
                 Some(session::Event::RequestDeclined {
                     method: method.into(),
                     turn_id: None,

@@ -75,6 +75,7 @@ pub(super) struct ClaudeProcess {
 }
 
 struct Shared {
+    commands: Mutex<Option<Vec<Value>>>,
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     pending: Mutex<HashMap<String, oneshot::Sender<std::result::Result<Value, String>>>>,
     next_id: AtomicU64,
@@ -95,9 +96,30 @@ struct Pending {
     tool_use_id: Option<String>,
     input: Value,
     suggestions: Option<Value>,
+    /// What the host was asked, to check its answer against.
+    kind: request::Kind,
 }
 
 impl ClaudeProcess {
+    pub(super) fn commands(&self) -> Vec<Value> {
+        self.shared
+            .commands
+            .lock()
+            .expect("commands lock")
+            .clone()
+            .unwrap_or_default()
+    }
+
+    pub(super) fn initialize_commands(&self, init: &Value) {
+        if let Some(commands) = init["commands"].as_array() {
+            self.shared
+                .commands
+                .lock()
+                .expect("commands lock")
+                .get_or_insert_with(|| commands.clone());
+        }
+    }
+
     pub(super) fn spawn(launch: &Launch<'_>) -> Result<Self> {
         let mut command = Command::new(launch.executable);
         command
@@ -162,6 +184,7 @@ impl ClaudeProcess {
         let stderr = child.stderr.take().expect("stderr is piped");
 
         let shared = Arc::new(Shared {
+            commands: Mutex::new(None),
             stdin: tokio::sync::Mutex::new(Some(stdin)),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(0),
@@ -199,6 +222,10 @@ impl ClaudeProcess {
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<session::Event> {
         self.shared.observation.subscribe()
+    }
+
+    pub(super) fn announce(&self, event: session::Event) {
+        self.shared.observation.announce(event);
     }
 
     pub(super) fn restore_observation(
@@ -344,7 +371,7 @@ impl ClaudeProcess {
         let response = {
             let requests = self.shared.requests.lock().expect("requests lock");
             let pending = requests.get(id).ok_or_else(not_found)?;
-            permission_response(pending, &decision)?
+            permission_response(id, pending, &decision)?
         };
         let Some(pending) = self
             .shared
@@ -496,6 +523,11 @@ impl Shared {
                     self.withdraw(&native_key(id));
                 }
             }
+            Some("system") if message["subtype"] == "commands_changed" => {
+                if let Some(commands) = message["commands"].as_array() {
+                    *self.commands.lock().expect("commands lock") = Some(commands.clone());
+                }
+            }
             Some("keep_alive") => {}
             _ => {
                 self.observation.message(&message);
@@ -576,17 +608,21 @@ impl Shared {
             .filter(|s| s.as_array().is_some_and(|s| !s.is_empty()))
             .cloned();
         let id = native_key(&native_id);
-        let forwarded = request::Request {
-            id: id.clone(),
-            turn_id: None,
-            kind: request::Kind::Tool {
-                name: text("tool_name").unwrap_or_default(),
+        let name = text("tool_name").unwrap_or_default();
+        let kind = interactive_kind(&name, &input, tool_use_id.as_deref()).unwrap_or_else(|| {
+            request::Kind::Tool {
+                name,
                 display_name: text("display_name"),
                 description: text("description"),
                 input: input.clone(),
                 tool_call_id: tool_use_id.clone(),
                 can_allow_for_session: suggestions.is_some(),
-            },
+            }
+        });
+        let forwarded = request::Request {
+            id: id.clone(),
+            turn_id: None,
+            kind: kind.clone(),
             native: request.clone(),
         };
         self.requests.lock().expect("requests lock").insert(
@@ -596,6 +632,7 @@ impl Shared {
                 tool_use_id: tool_use_id.clone(),
                 input,
                 suggestions,
+                kind,
             },
         );
         self.observation
@@ -656,16 +693,91 @@ fn native_key(id: &Value) -> String {
     id.as_str().map_or_else(|| id.to_string(), str::to_owned)
 }
 
+/// Claude Code's own tools that ask the user something, mapped to their
+/// request kinds; `None` for every other tool, or an input Stubb cannot read.
+fn interactive_kind(name: &str, input: &Value, tool_use_id: Option<&str>) -> Option<request::Kind> {
+    let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    match name {
+        // AskUserQuestion: 1-4 questions, each with options. Claude Code adds
+        // an "Other" answer to every question itself.
+        "AskUserQuestion" => {
+            let questions = input
+                .get("questions")?
+                .as_array()?
+                .iter()
+                .map(|question| {
+                    let text_of = text(question, "question")?;
+                    let options = question
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|option| {
+                            Some(request::QuestionOption {
+                                label: text(option, "label")?,
+                                description: text(option, "description"),
+                                preview: text(option, "preview"),
+                            })
+                        })
+                        .collect();
+                    Some(request::Question {
+                        id: text_of.clone(),
+                        header: text(question, "header"),
+                        question: text_of,
+                        options,
+                        multi_select: question.get("multiSelect").and_then(Value::as_bool)
+                            == Some(true),
+                        allow_other: true,
+                        secret: false,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            (!questions.is_empty()).then(|| {
+                request::Kind::Question(request::Questions {
+                    questions,
+                    tool_call_id: tool_use_id.map(str::to_owned),
+                })
+            })
+        }
+        // ExitPlanMode: Claude Code adds the plan and the file it saved it to.
+        "ExitPlanMode" => Some(request::Kind::PlanApproval(request::PlanApproval {
+            plan: text(input, "plan").unwrap_or_default(),
+            options: PLAN_MODES
+                .iter()
+                .map(|(mode, label)| {
+                    request::Choice::new(mode.as_str(), *label, request::ChoiceKind::AllowOnce)
+                })
+                .collect(),
+            path: text(input, "planFilePath").map(PathBuf::from),
+            tool_call_id: tool_use_id.map(str::to_owned),
+        })),
+        _ => None,
+    }
+}
+
+/// The permission modes a plan can be approved with, as Claude Code's own
+/// plan prompt offers them. Picking one switches the session's mode.
+const PLAN_MODES: [(super::PermissionMode, &str); 2] = [
+    (
+        super::PermissionMode::AcceptEdits,
+        "Yes, and accept edits without asking",
+    ),
+    (
+        super::PermissionMode::Default,
+        "Yes, and ask before each edit",
+    ),
+];
+
 /// The `can_use_tool` answer for a decision, in the Agent SDK's shape.
-fn permission_response(pending: &Pending, decision: &Decision) -> Result<Value> {
+fn permission_response(id: &str, pending: &Pending, decision: &Decision) -> Result<Value> {
     let tool_use_id = &pending.tool_use_id;
-    Ok(match decision {
-        Decision::Allow => json!({
+    Ok(match (decision, &pending.kind) {
+        (Decision::Allow, _) => json!({
             "behavior": "allow",
             "updatedInput": pending.input,
             "toolUseID": tool_use_id,
         }),
-        Decision::AllowForSession => {
+        (Decision::AllowForSession, _) => {
             let Some(suggestions) = &pending.suggestions else {
                 return Err(Error::Unsupported {
                     operation: "allow_for_session",
@@ -678,18 +790,102 @@ fn permission_response(pending: &Pending, decision: &Decision) -> Result<Value> 
                 "toolUseID": tool_use_id,
             })
         }
-        Decision::Deny { message } => json!({
+        (Decision::Deny { message }, _) => json!({
             "behavior": "deny",
             "message": message.as_deref().unwrap_or(DENIED),
             "toolUseID": tool_use_id,
         }),
-        Decision::Cancel => json!({
+        (Decision::Cancel, _) => json!({
             "behavior": "deny",
             "message": DENIED,
             "interrupt": true,
             "toolUseID": tool_use_id,
         }),
+        (Decision::Answer { answers }, request::Kind::Question(questions)) => {
+            let mut input = pending.input.clone();
+            let Some(fields) = input.as_object_mut() else {
+                return Err(request::invalid(id, "the question has no input to answer"));
+            };
+            fields.insert(
+                "answers".to_owned(),
+                Value::Object(question_answers(id, &questions.questions, answers)?),
+            );
+            json!({
+                "behavior": "allow",
+                "updatedInput": input,
+                "toolUseID": tool_use_id,
+            })
+        }
+        (Decision::Select { option_id }, request::Kind::PlanApproval(plan)) => {
+            if !plan.options.iter().any(|option| &option.id == option_id) {
+                return Err(request::invalid(
+                    id,
+                    format!("the plan approval offers no option {option_id:?}"),
+                ));
+            }
+            json!({
+                "behavior": "allow",
+                "updatedInput": pending.input,
+                "updatedPermissions": [
+                    { "type": "setMode", "mode": option_id, "destination": "session" }
+                ],
+                "toolUseID": tool_use_id,
+            })
+        }
+        (decision, _) => {
+            return Err(request::invalid(
+                id,
+                format!("{} does not answer this request", decision.name()),
+            ));
+        }
     })
+}
+
+/// AskUserQuestion's `answers`: each answered question's text to the answer,
+/// as Claude Code's own prompt writes it. A multi-select answer is a list
+/// (Claude Code joins it with commas); any other answer is one string.
+fn question_answers(
+    id: &str,
+    questions: &[request::Question],
+    answers: &[request::Answer],
+) -> Result<serde_json::Map<String, Value>> {
+    let mut map = serde_json::Map::new();
+    for answer in answers {
+        let Some(question) = questions.iter().find(|q| q.id == answer.question_id) else {
+            return Err(request::invalid(
+                id,
+                format!("no question {:?}", answer.question_id),
+            ));
+        };
+        if let Some(label) = answer.selected.iter().find(|label| {
+            !question
+                .options
+                .iter()
+                .any(|option| &option.label == *label)
+        }) {
+            return Err(request::invalid(
+                id,
+                format!("{:?} is not an option of {:?}", label, question.question),
+            ));
+        }
+        if !question.multi_select && answer.selected.len() > 1 {
+            return Err(request::invalid(
+                id,
+                format!("{:?} takes one option", question.question),
+            ));
+        }
+        let values = answer.values();
+        if values.is_empty() {
+            continue;
+        }
+        let value = if question.multi_select {
+            Value::from(values)
+        } else {
+            Value::from(values.join(", "))
+        };
+        map.insert(question.question.clone(), value);
+    }
+    Ok(map)
 }
 
 async fn read_loop(shared: Arc<Shared>, stdout: ChildStdout) {
@@ -712,7 +908,7 @@ mod tests {
 
     use super::{ClaudeProcess, Conversation, Launch, Pending, permission_response};
     use crate::process::Environment;
-    use crate::request::{Decision, Kind, Outcome};
+    use crate::request::{Answer, Decision, Kind, Outcome};
     use crate::session::Event;
 
     const PROMPT: &str = r#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"hello.txt","content":"hi"},"description":"hello.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_1"}}"#;
@@ -882,10 +1078,19 @@ mod tests {
             tool_use_id: Some("toolu_1".into()),
             input: json!({"command": "ls"}),
             suggestions: Some(json!([{"type": "setMode", "mode": "acceptEdits"}])),
+            kind: Kind::Tool {
+                name: "Bash".into(),
+                display_name: None,
+                description: None,
+                input: json!({"command": "ls"}),
+                tool_call_id: Some("toolu_1".into()),
+                can_allow_for_session: true,
+            },
         };
-        let session = permission_response(&pending, &Decision::AllowForSession).unwrap();
+        let session = permission_response("req-1", &pending, &Decision::AllowForSession).unwrap();
         assert_eq!(session["updatedPermissions"][0]["mode"], "acceptEdits");
         let deny = permission_response(
+            "req-1",
             &pending,
             &Decision::Deny {
                 message: Some("not now".into()),
@@ -895,7 +1100,17 @@ mod tests {
         assert_eq!(deny["behavior"], "deny");
         assert_eq!(deny["message"], "not now");
         assert!(deny.get("interrupt").is_none());
-        let cancel = permission_response(&pending, &Decision::Cancel).unwrap();
+        let cancel = permission_response("req-1", &pending, &Decision::Cancel).unwrap();
+        assert!(matches!(
+            permission_response(
+                "req-1",
+                &pending,
+                &Decision::Select {
+                    option_id: "acceptEdits".into()
+                }
+            ),
+            Err(crate::Error::InvalidDecision { .. })
+        ));
         assert_eq!(cancel["interrupt"], true);
 
         let without = Pending {
@@ -903,8 +1118,171 @@ mod tests {
             ..pending
         };
         assert!(matches!(
-            permission_response(&without, &Decision::AllowForSession),
+            permission_response("req-1", &without, &Decision::AllowForSession),
             Err(crate::Error::Unsupported { .. })
         ));
+    }
+
+    fn pending_for(tool: &str, input: Value) -> Pending {
+        Pending {
+            native_id: json!("req-1"),
+            tool_use_id: Some("toolu_1".into()),
+            kind: super::interactive_kind(tool, &input, Some("toolu_1"))
+                .expect("an interactive kind"),
+            input,
+            suggestions: None,
+        }
+    }
+
+    #[test]
+    fn ask_user_question_answers_go_into_the_tool_input() {
+        let input = json!({ "questions": [
+            { "question": "Which library?", "header": "Library", "multiSelect": false,
+              "options": [{ "label": "chrono", "description": "Full" }, { "label": "time", "description": "Small" }] },
+            { "question": "Which features?", "header": "Features", "multiSelect": true,
+              "options": [{ "label": "serde", "description": "" }, { "label": "tz", "description": "", "preview": "x" }] }
+        ] });
+        let pending = pending_for("AskUserQuestion", input.clone());
+        let Kind::Question(questions) = &pending.kind else {
+            panic!("expected questions, got {:?}", pending.kind);
+        };
+        assert_eq!(questions.tool_call_id.as_deref(), Some("toolu_1"));
+        assert_eq!(questions.questions[0].id, "Which library?");
+        assert_eq!(questions.questions[0].header.as_deref(), Some("Library"));
+        assert!(questions.questions[0].allow_other);
+        assert!(questions.questions[1].multi_select);
+        assert_eq!(
+            questions.questions[1].options[1].preview.as_deref(),
+            Some("x")
+        );
+
+        let response = permission_response(
+            "req-1",
+            &pending,
+            &Decision::Answer {
+                answers: vec![
+                    Answer::other("Which library?", "jiff"),
+                    Answer::selected("Which features?", ["serde", "tz"]),
+                ],
+            },
+        )
+        .unwrap();
+        let mut expected = input;
+        expected["answers"] = json!({
+            "Which library?": "jiff",
+            "Which features?": ["serde", "tz"],
+        });
+        assert_eq!(
+            response,
+            json!({ "behavior": "allow", "updatedInput": expected, "toolUseID": "toolu_1" })
+        );
+        for wrong in [
+            Decision::Answer {
+                answers: vec![Answer::selected("Which library?", ["moment"])],
+            },
+            Decision::Answer {
+                answers: vec![Answer::other("Which colour?", "red")],
+            },
+            Decision::Select {
+                option_id: "default".into(),
+            },
+        ] {
+            assert!(matches!(
+                permission_response("req-1", &pending, &wrong),
+                Err(crate::Error::InvalidDecision { .. })
+            ));
+        }
+        // A host that only knows tools still gets an answer through.
+        assert_eq!(
+            permission_response("req-1", &pending, &Decision::Deny { message: None }).unwrap()["behavior"],
+            "deny"
+        );
+    }
+
+    #[test]
+    fn plans_are_approved_with_a_permission_mode_or_rejected_with_feedback() {
+        let input =
+            json!({ "plan": "# Plan\n1. Do it", "planFilePath": "/home/u/.claude/plans/p.md" });
+        let pending = pending_for("ExitPlanMode", input.clone());
+        let Kind::PlanApproval(plan) = &pending.kind else {
+            panic!("expected a plan, got {:?}", pending.kind);
+        };
+        assert_eq!(plan.plan, "# Plan\n1. Do it");
+        assert_eq!(
+            plan.path.as_deref(),
+            Some(std::path::Path::new("/home/u/.claude/plans/p.md"))
+        );
+        let ids: Vec<_> = plan.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["acceptEdits", "default"]);
+
+        assert_eq!(
+            permission_response(
+                "req-1",
+                &pending,
+                &Decision::Select {
+                    option_id: "acceptEdits".into()
+                }
+            )
+            .unwrap(),
+            json!({
+                "behavior": "allow",
+                "updatedInput": input,
+                "updatedPermissions": [{ "type": "setMode", "mode": "acceptEdits", "destination": "session" }],
+                "toolUseID": "toolu_1",
+            })
+        );
+        assert_eq!(
+            permission_response("req-1", &pending, &Decision::Allow).unwrap(),
+            json!({ "behavior": "allow", "updatedInput": input, "toolUseID": "toolu_1" })
+        );
+        let rejected = permission_response(
+            "req-1",
+            &pending,
+            &Decision::Deny {
+                message: Some("Use a smaller change.".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(rejected["behavior"], "deny");
+        assert_eq!(rejected["message"], "Use a smaller change.");
+        assert!(matches!(
+            permission_response(
+                "req-1",
+                &pending,
+                &Decision::Select {
+                    option_id: "bypassPermissions".into()
+                }
+            ),
+            Err(crate::Error::InvalidDecision { .. })
+        ));
+    }
+
+    #[test]
+    fn a_single_select_question_takes_one_option() {
+        let input = json!({ "questions": [
+            { "question": "Which library?", "header": "Library", "multiSelect": false,
+              "options": [{ "label": "chrono", "description": "" }, { "label": "time", "description": "" }] }
+        ] });
+        let pending = pending_for("AskUserQuestion", input);
+        let answer = |labels: &[&str]| {
+            permission_response(
+                "req-1",
+                &pending,
+                &Decision::Answer {
+                    answers: vec![Answer::selected("Which library?", labels.iter().copied())],
+                },
+            )
+        };
+        assert!(matches!(
+            answer(&["chrono", "time"]),
+            Err(crate::Error::InvalidDecision { .. })
+        ));
+        assert!(answer(&["time"]).is_ok());
+    }
+
+    #[test]
+    fn unreadable_questions_stay_tool_requests() {
+        assert!(super::interactive_kind("AskUserQuestion", &json!({}), None).is_none());
+        assert!(super::interactive_kind("Write", &json!({}), None).is_none());
     }
 }

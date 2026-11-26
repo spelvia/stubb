@@ -19,6 +19,45 @@ mod event;
 pub use driver::Driver;
 pub use event::{CloseReason, EVENT_FORMAT, Event};
 
+/// A skill available to this session. Pass its opaque id to [`Session::invoke_skill`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+impl Skill {
+    pub(crate) fn unavailable(id: &str) -> crate::Error {
+        crate::Error::InvalidSetting {
+            setting: "skill",
+            value: id.to_owned(),
+            reason: "skill unavailable in this session".into(),
+        }
+    }
+
+    pub(crate) fn slash_input(&self, mut input: turn::Input) -> turn::Input {
+        let prefix = format!("/{}", self.name);
+        if !input
+            .text
+            .strip_prefix(&prefix)
+            .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+        {
+            input.text = format!("{prefix} {}", input.text).trim_end().to_owned();
+        }
+        input
+    }
+
+    pub fn new(id: String, name: String, description: String) -> Self {
+        Self {
+            id,
+            name,
+            description,
+        }
+    }
+}
+
 /// A session loaded into a running harness.
 ///
 /// Cloning shares the same session. Dropping every handle does not close the
@@ -118,6 +157,31 @@ impl Session {
         self.driver.set_mode(mode_id).await
     }
 
+    /// Discover prompts from the MCP servers connected through this provider.
+    pub async fn mcp_prompts(&self) -> Result<Vec<crate::mcp::Prompt>> {
+        self.driver.mcp_prompts().await
+    }
+
+    /// Invoke an advertised prompt through its originating provider connection.
+    pub async fn invoke_mcp_prompt(
+        &self,
+        server: &str,
+        name: &str,
+        input: turn::Input,
+    ) -> Result<turn::Receipt> {
+        self.driver.invoke_mcp_prompt(server, name, input).await
+    }
+
+    /// Lists skills that can be explicitly invoked in this session.
+    pub async fn skills(&self) -> Result<Vec<Skill>> {
+        self.driver.skills().await
+    }
+
+    /// Starts a turn using the selected skill and the user's instructions and images.
+    pub async fn invoke_skill(&self, id: &str, input: turn::Input) -> Result<turn::Receipt> {
+        self.driver.invoke_skill(id, input).await
+    }
+
     /// Starts a turn with `input`. Subscribe first to receive all of its
     /// events; the receipt only confirms that the turn started.
     pub async fn send(&self, input: turn::Input) -> Result<turn::Receipt> {
@@ -133,7 +197,9 @@ impl Session {
     /// Answers a pending [`Event::Request`]. Only sessions started or resumed
     /// with [`Settings::forward_requests`] receive requests. An id that is not
     /// pending, because it was answered or withdrawn, is
-    /// [`crate::Error::RequestNotFound`].
+    /// [`crate::Error::RequestNotFound`]; a decision that does not answer
+    /// the request's kind is [`crate::Error::InvalidDecision`] and leaves it
+    /// pending.
     pub async fn respond(&self, request_id: &str, decision: request::Decision) -> Result<()> {
         self.driver.respond(request_id, decision).await
     }
@@ -227,9 +293,10 @@ pub struct Settings {
     /// Provider-specific start/resume permission overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<crate::permission::Configuration>,
-    /// Forward the agent's requests, such as tool permission prompts, as
-    /// [`Event::Request`] and wait for [`Session::respond`]. Off by default:
-    /// Stubb then declines them itself. See [`crate::request`].
+    /// Forward the agent's requests, such as tool permission prompts,
+    /// questions and plan approvals, as [`Event::Request`] and wait for
+    /// [`Session::respond`]. Off by default: Stubb then declines them itself.
+    /// See [`crate::request`] for what each provider forwards.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub forward_requests: bool,
     /// Folders outside `cwd` the agent may read without asking, such as
@@ -354,6 +421,7 @@ mod tests {
                 "type": "answered", "decision": { "type": "deny", "message": null }
             } }),
             json!({ "type": "raw", "name": "x", "payload": { "a": 1 } }),
+            json!({ "type": "title", "title": "Fix the login bug" }),
         ];
         for json in stored {
             let event: Event = serde_json::from_value(json.clone()).unwrap();
@@ -361,6 +429,112 @@ mod tests {
                 !matches!(event, Event::Unknown(_)),
                 "{json} is a known event"
             );
+            assert_eq!(serde_json::to_value(&event).unwrap(), json);
+        }
+    }
+
+    /// Format 1 as 0.1.1-rc.1 wrote it, including the request and tool
+    /// shapes later releases extended, still reads to the same values.
+    #[test]
+    fn format_1_events_from_before_interactive_requests_still_read() {
+        let stored = [
+            json!({ "type": "request", "request": {
+                "id": "r", "turnId": null, "native": {},
+                "kind": { "type": "tool", "name": "Write", "displayName": null, "description": null,
+                    "input": {}, "toolCallId": "c", "canAllowForSession": false }
+            } }),
+            json!({ "type": "requestResolved", "id": "r", "outcome": {
+                "type": "answered", "decision": { "type": "allowForSession" }
+            } }),
+            json!({ "type": "itemEnd", "turnId": "t", "item": {
+                "type": "toolCall", "id": "c", "status": "completed", "durationMs": 3,
+                "detail": { "kind": "mcp", "server": "github", "tool": "get_issue",
+                    "arguments": { "n": 1 }, "error": null }
+            } }),
+        ];
+        for json in stored {
+            let event: Event = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&event).unwrap(), json);
+        }
+        let event: Event = serde_json::from_value(json!({ "type": "itemEnd", "turnId": "t", "item": {
+            "type": "toolCall", "id": "c", "status": "completed", "durationMs": null,
+            "detail": { "kind": "mcp", "server": "github", "tool": "get_issue", "arguments": {}, "error": null }
+        } }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            Event::ItemEnd {
+                item: turn::Item::ToolCall(turn::ToolCall {
+                    detail: turn::ToolDetail::Mcp { .. },
+                    ..
+                }),
+                ..
+            }
+        ));
+    }
+
+    /// What 0.1.1-rc.2 added to format 1: interactive request kinds, their
+    /// decisions, and MCP calls with results. Additions only, so
+    /// [`EVENT_FORMAT`] stays 1.
+    #[test]
+    fn format_1_additions_round_trip() {
+        assert_eq!(EVENT_FORMAT, 1);
+        let request = |kind: serde_json::Value| json!({ "type": "request", "request": { "id": "r", "turnId": "t", "native": {}, "kind": kind } });
+        let stored = [
+            request(
+                json!({ "type": "question", "toolCallId": "toolu_1", "questions": [{
+                "id": "Which library?", "header": "Library", "question": "Which library?",
+                "options": [{ "label": "chrono", "description": "Full", "preview": null }],
+                "multiSelect": false, "allowOther": true, "secret": false
+            }] }),
+            ),
+            request(
+                json!({ "type": "planApproval", "plan": "# Plan", "path": null, "toolCallId": "toolu_2",
+                "options": [{ "id": "acceptEdits", "label": "Yes, and accept edits without asking",
+                    "description": null, "kind": "allowOnce" }] }),
+            ),
+            request(
+                json!({ "type": "permission", "name": "edit", "displayName": "Edit a.txt",
+                "description": null, "input": { "path": "a.txt" }, "toolCallId": "edit-1",
+                "options": [{ "id": "once", "label": "Allow once", "description": null, "kind": "allowOnce" }] }),
+            ),
+            request(
+                json!({ "type": "form", "message": "Repo?", "source": "github", "url": null,
+                "schema": { "type": "object" }, "toolCallId": null, "fields": [{
+                    "name": "repo", "kind": "select", "title": "Repository", "description": null,
+                    "required": true, "options": [{ "value": "a/b", "label": "a/b" }], "format": null,
+                    "minimum": null, "maximum": null, "default": null }] }),
+            ),
+            json!({ "type": "requestResolved", "id": "r", "outcome": { "type": "answered", "decision": {
+                "type": "answer", "answers": [{ "questionId": "Which library?", "selected": ["chrono"], "other": null }]
+            } } }),
+            json!({ "type": "requestResolved", "id": "r", "outcome": { "type": "answered", "decision": {
+                "type": "select", "optionId": "acceptEdits"
+            } } }),
+            json!({ "type": "requestResolved", "id": "r", "outcome": { "type": "answered", "decision": {
+                "type": "submit", "values": { "repo": "a/b" }
+            } } }),
+            json!({ "type": "itemEnd", "turnId": "t", "item": {
+                "type": "toolCall", "id": "c", "status": "completed", "durationMs": 3,
+                "detail": { "kind": "mcpCall", "server": "github", "tool": "get_issue",
+                    "arguments": { "n": 1 }, "error": null,
+                    "result": { "content": [{ "type": "text", "text": "Bug" }], "structuredContent": { "n": 1 } } }
+            } }),
+        ];
+        for json in stored {
+            let event: Event = serde_json::from_value(json.clone()).unwrap();
+            let unknown = match &event {
+                Event::Request { request } => matches!(request.kind, request::Kind::Unknown(_)),
+                Event::RequestResolved { outcome, .. } => {
+                    matches!(outcome, request::Outcome::Unknown(_))
+                }
+                Event::ItemEnd {
+                    item: turn::Item::ToolCall(call),
+                    ..
+                } => matches!(call.detail, turn::ToolDetail::Unknown(_)),
+                _ => true,
+            };
+            assert!(!unknown, "{json} is known");
             assert_eq!(serde_json::to_value(&event).unwrap(), json);
         }
     }
@@ -477,7 +651,7 @@ mod tests {
 
         let event: Event = serde_json::from_value(json!({
             "type": "request", "request": {
-                "id": "r", "turnId": null, "native": {}, "kind": { "type": "question", "text": "?" }
+                "id": "r", "turnId": null, "native": {}, "kind": { "type": "telepathy", "text": "?" }
             }
         }))
         .unwrap();

@@ -59,12 +59,22 @@ pub enum Event {
     ItemEnd { turn_id: String, item: turn::Item },
     /// Token usage after a model call.
     Usage { turn_id: String, usage: turn::Usage },
+    /// Accounting at turn end, when the provider reports it. Tokens belong to
+    /// this turn; cost is the native session total at the end of the turn.
+    TurnAccounting {
+        turn_id: String,
+        tokens: Option<i64>,
+        session_cost_usd: Option<f64>,
+    },
     /// The agent started or finished compacting its context. `turn_id` is
     /// `None` when it happened outside a turn.
     Compaction {
         turn_id: Option<String>,
         compaction: turn::Compaction,
     },
+    /// The agent named the session, or renamed it: the title to show for
+    /// it. Sent when a provider reports one, not for every session.
+    Title { title: String },
     /// The agent reported an error. While `retrying`, the turn continues.
     Error {
         turn_id: Option<String>,

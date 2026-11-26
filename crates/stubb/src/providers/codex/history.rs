@@ -6,7 +6,8 @@ use serde_json::Value;
 use super::types;
 use crate::session;
 use crate::turn::{
-    self, FileChange, FileChangeKind, Item, ToolCall, ToolDetail, ToolStatus, Turn, UserContent,
+    self, FileChange, FileChangeKind, Item, McpCall, McpResult, ToolCall, ToolDetail, ToolStatus,
+    Turn, UserContent,
 };
 
 pub(super) fn summary(thread: types::Thread) -> session::Summary {
@@ -117,12 +118,12 @@ pub(super) fn item(raw: Value) -> Item {
                 id: item.id,
                 status: item.status.into(),
                 duration_ms: item.duration_ms,
-                detail: ToolDetail::Mcp {
-                    server: item.server,
-                    tool: item.tool,
-                    arguments: item.arguments,
-                    error: item.error.as_ref().and_then(describe),
-                },
+                detail: ToolDetail::McpCall({
+                    let mut call = McpCall::new(item.server, item.tool, item.arguments);
+                    call.error = item.error.as_ref().and_then(describe);
+                    call.result = item.result.as_ref().and_then(mcp_result);
+                    call
+                }),
             })
         }),
         _ => None,
@@ -132,6 +133,16 @@ pub(super) fn item(raw: Value) -> Item {
         kind,
         raw,
     })
+}
+
+/// Codex's `McpToolCallResult`: content blocks and structured content.
+fn mcp_result(result: &Value) -> Option<McpResult> {
+    let mut mcp = McpResult::from_content(result.get("content")?);
+    mcp.structured_content = result
+        .get("structuredContent")
+        .filter(|value| !value.is_null())
+        .cloned();
+    Some(mcp)
 }
 
 fn decode<T: DeserializeOwned>(raw: &Value) -> Option<T> {

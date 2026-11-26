@@ -19,6 +19,16 @@ pub(super) fn from_notification(method: &str, params: Value) -> Event {
         "thread/closed" => Some(Event::Closed {
             reason: CloseReason::Agent,
         }),
+        // A thread renamed (`thread/name/set`, from any client; Codex does
+        // not name threads itself): its title. Clearing the name sends no
+        // title; the host keeps the one it has.
+        "thread/name/updated" => params["threadName"]
+            .as_str()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(|title| Event::Title {
+                title: title.to_owned(),
+            }),
         "turn/started" => decode::<types::TurnNotification>(&params)
             .map(|n| Event::TurnStart { turn_id: n.turn.id }),
         // Items were already delivered by the item events.
@@ -294,5 +304,24 @@ mod tests {
         );
         assert!(matches!(completed, Event::Compaction { compaction, .. }
             if compaction.status == turn::CompactionStatus::Completed));
+    }
+
+    #[test]
+    fn a_renamed_thread_gives_the_session_its_title() {
+        let renamed = from_notification(
+            "thread/name/updated",
+            json!({ "threadId": "th", "threadName": "  Fix the login bug " }),
+        );
+        assert_eq!(
+            renamed,
+            Event::Title {
+                title: "Fix the login bug".to_owned()
+            }
+        );
+        let cleared = from_notification(
+            "thread/name/updated",
+            json!({ "threadId": "th", "threadName": null }),
+        );
+        assert!(matches!(cleared, Event::Raw { .. }));
     }
 }

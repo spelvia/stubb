@@ -186,7 +186,7 @@ fn assistant_items(turn: &mut turn::Turn, uuid: &str, content: &Value) {
                         .map_or(id, str::to_owned),
                     status: ToolStatus::InProgress,
                     duration_ms: None,
-                    detail: tools::detail(text("name"), &input, None),
+                    detail: tools::detail(text("name"), &input, None, false),
                 }));
             }
             _ => {}
@@ -204,7 +204,8 @@ fn complete_tools(turn: &mut turn::Turn, content: &Value) {
             continue;
         };
         let failed = block.get("is_error").and_then(Value::as_bool) == Some(true);
-        let output = block.get("content").and_then(tools::result_text);
+        let result = block.get("content");
+        let output = result.and_then(tools::result_text);
         for item in &mut turn.items {
             if let Item::ToolCall(call) = item
                 && call.id == id
@@ -214,16 +215,25 @@ fn complete_tools(turn: &mut turn::Turn, content: &Value) {
                 } else {
                     ToolStatus::Completed
                 };
-                set_output(&mut call.detail, output.clone());
+                set_output(&mut call.detail, output.clone(), result, failed);
             }
         }
     }
 }
 
-fn set_output(detail: &mut turn::ToolDetail, value: Option<String>) {
+fn set_output(
+    detail: &mut turn::ToolDetail,
+    value: Option<String>,
+    result: Option<&Value>,
+    failed: bool,
+) {
     match detail {
         turn::ToolDetail::Command { output, .. } | turn::ToolDetail::Other { output, .. } => {
             *output = value;
+        }
+        turn::ToolDetail::McpCall(call) if failed => call.error = value,
+        turn::ToolDetail::McpCall(call) => {
+            call.result = result.map(turn::McpResult::from_content);
         }
         _ => {}
     }

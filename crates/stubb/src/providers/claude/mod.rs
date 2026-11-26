@@ -30,6 +30,6 @@ pub use cli::CLI;
 mod driver;
 mod provider;
 mod transcripts;
-use transcripts::{fork, history, store};
+use transcripts::{fork, history, store, title};
 
 pub use provider::{Claude, ClaudeConfig};

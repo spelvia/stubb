@@ -383,6 +383,8 @@ pub(crate) struct McpToolCallItem {
     #[serde(default)]
     pub error: Option<Value>,
     #[serde(default)]
+    pub result: Option<Value>,
+    #[serde(default)]
     pub duration_ms: Option<i64>,
 }
 
@@ -416,6 +418,7 @@ pub(crate) struct TurnStartParams<'a> {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum UserInput<'a> {
+    Skill { name: &'a str, path: &'a str },
     Text { text: &'a str },
     LocalImage { path: &'a std::path::Path },
 }

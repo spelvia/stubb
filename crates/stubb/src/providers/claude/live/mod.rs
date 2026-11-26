@@ -63,6 +63,15 @@ impl Attachment {
         self.legacy.subscribe()
     }
 
+    /// Sends a session-wide event that no native message carries, such as a
+    /// title read from the transcript.
+    pub(super) fn announce(&self, event: session::Event) {
+        self.state
+            .lock()
+            .expect("observation lock")
+            .announce(event, &self.records, &self.legacy);
+    }
+
     pub(super) fn subscribe_records(&self) -> broadcast::Receiver<obs::Record> {
         let mut state = self.state.lock().expect("observation lock");
         let receiver = self.records.subscribe();

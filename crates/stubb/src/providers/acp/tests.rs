@@ -166,6 +166,24 @@ async fn scenario(fake: Arc<Fake>, cx: AgentCx, text: String) -> wire::StopReaso
                 wire::StopReason::EndTurn
             }
         }
+        ["elicit"] => {
+            let request: wire::CreateElicitationRequest = serde_json::from_value(json!({
+                "sessionId": SESSION, "toolCallId": "call-9", "mode": "form",
+                "message": "Which repository?",
+                "requestedSchema": { "type": "object", "required": ["repo"], "properties": {
+                    "repo": { "type": "string", "title": "Repository" },
+                    "private": { "type": "boolean" }
+                } }
+            }))
+            .unwrap();
+            let response = cx.send_request(request).block_task().await;
+            let answer = match response {
+                Ok(response) => serde_json::to_value(response.action).unwrap().to_string(),
+                Err(error) => format!("error: {}", error.message),
+            };
+            notify(&cx, chunk("agent_message_chunk", &answer));
+            wire::StopReason::EndTurn
+        }
         ["compact"] => {
             let compaction = |status: &str| {
                 update(
@@ -677,6 +695,20 @@ async fn forwarded_permission_requests_round_trip() {
     for (decision, expected, status) in [
         (Decision::AllowForSession, "always", ToolStatus::Completed),
         (Decision::Deny { message: None }, "no", ToolStatus::Declined),
+        (
+            Decision::Select {
+                option_id: "once".into(),
+            },
+            "once",
+            ToolStatus::Completed,
+        ),
+        (
+            Decision::Select {
+                option_id: "no".into(),
+            },
+            "no",
+            ToolStatus::Declined,
+        ),
     ] {
         let mut events = session.subscribe();
         let receipt = session.send(turn::Input::text("permission")).await.unwrap();
@@ -686,22 +718,35 @@ async fn forwarded_permission_requests_round_trip() {
             }
         };
         assert_eq!(request.turn_id.as_deref(), Some(receipt.turn_id.as_str()));
-        let request::Kind::Tool {
-            name,
-            display_name,
-            tool_call_id,
-            can_allow_for_session,
-            input,
-            ..
-        } = &request.kind
-        else {
-            panic!("expected a tool request, got {:?}", request.kind);
+        let request::Kind::Permission(permission) = &request.kind else {
+            panic!("expected a permission request, got {:?}", request.kind);
         };
-        assert_eq!(name, "edit");
-        assert_eq!(display_name.as_deref(), Some("Edit a.txt"));
-        assert_eq!(tool_call_id.as_deref(), Some("edit-1"));
-        assert!(*can_allow_for_session);
-        assert_eq!(input, &json!({ "path": "a.txt" }));
+        assert_eq!(permission.name, "edit");
+        assert_eq!(permission.display_name.as_deref(), Some("Edit a.txt"));
+        assert_eq!(permission.tool_call_id.as_deref(), Some("edit-1"));
+        assert_eq!(permission.input, json!({ "path": "a.txt" }));
+        let options: Vec<_> = permission
+            .options
+            .iter()
+            .map(|option| (option.id.as_str(), option.label.as_str(), option.kind))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("once", "Allow once", request::ChoiceKind::AllowOnce),
+                ("always", "Always allow", request::ChoiceKind::AllowAlways),
+                ("no", "Reject", request::ChoiceKind::RejectOnce),
+            ]
+        );
+        let wrong = session
+            .respond(
+                &request.id,
+                Decision::Select {
+                    option_id: "maybe".into(),
+                },
+            )
+            .await;
+        assert!(matches!(wrong, Err(Error::InvalidDecision { .. })));
         session
             .respond(&request.id, decision.clone())
             .await
@@ -725,6 +770,80 @@ async fn forwarded_permission_requests_round_trip() {
         assert!(matches!(again, Err(Error::RequestNotFound { .. })));
     }
     session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn elicitations_are_forms() {
+    let fake = Arc::new(Fake::default());
+    let session = provider(&fake)
+        .start_session(spec(session::Settings {
+            forward_requests: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    let mut values = serde_json::Map::new();
+    values.insert("repo".into(), json!("spelvia/stubb"));
+    values.insert("private".into(), json!(false));
+    for (decision, expected) in [
+        (
+            Decision::Submit { values },
+            json!({ "action": "accept", "content": { "repo": "spelvia/stubb", "private": false } }),
+        ),
+        (
+            Decision::Deny { message: None },
+            json!({ "action": "decline" }),
+        ),
+    ] {
+        let mut events = session.subscribe();
+        session.send(turn::Input::text("elicit")).await.unwrap();
+        let request = loop {
+            if let Event::Request { request } = next(&mut events).await {
+                break request;
+            }
+        };
+        let request::Kind::Form(form) = &request.kind else {
+            panic!("expected a form, got {:?}", request.kind);
+        };
+        assert_eq!(form.message, "Which repository?");
+        assert_eq!(form.tool_call_id.as_deref(), Some("call-9"));
+        let repo = form.fields.iter().find(|f| f.name == "repo").unwrap();
+        assert_eq!(repo.kind, request::FieldKind::Text);
+        assert_eq!(repo.title.as_deref(), Some("Repository"));
+        assert!(repo.required);
+        let wrong = session
+            .respond(&request.id, Decision::AllowForSession)
+            .await;
+        assert!(matches!(wrong, Err(Error::InvalidDecision { .. })));
+        session
+            .respond(&request.id, decision.clone())
+            .await
+            .unwrap();
+        let events = turn_events(&mut events).await;
+        let answer = ended(&events)
+            .into_iter()
+            .find_map(|item| match item {
+                Item::AgentMessage { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&answer).unwrap(), expected);
+    }
+
+    // Without forwarding, Stubb declines.
+    let quiet = provider(&fake)
+        .start_session(spec(session::Settings::default()))
+        .await
+        .unwrap();
+    let mut events = quiet.subscribe();
+    quiet.send(turn::Input::text("elicit")).await.unwrap();
+    let events = turn_events(&mut events).await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::RequestDeclined { method, .. } if method == "elicitation/create"
+    )));
+    session.close().await.unwrap();
+    quiet.close().await.unwrap();
 }
 
 #[tokio::test]

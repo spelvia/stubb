@@ -23,12 +23,23 @@ while IFS= read -r line; do
   echo "$method" >> '{methods}'
   printf '%s\n' "$line" >> '{requests}'
   [ -n "$id" ] || continue
+  # Stubb's answers to the stand-in's own requests carry no method.
+  [ -n "$method" ] || continue
   case "$method" in
     initialize) printf '{{"id":%s,"result":{{"userAgent":"stubb-test/0.1.0"}}}}\n' "$id" ;;
+    skills/list) printf '{{"id":%s,"result":{{"data":[{{"cwd":"/tmp","skills":[{{"name":"review","path":"/tmp/review/SKILL.md","description":"Review changes","enabled":true}},{{"name":"old","path":"/tmp/old","description":"","enabled":false}}]}}]}}}}\n' "$id" ;;
     model/list) printf '{{"id":%s,"result":{{"data":[]}}}}\n' "$id" ;;
     account/rateLimits/read) printf '{{"id":%s,"result":{{"rateLimits":{{"limitId":"codex","planType":"plus","primary":{{"usedPercent":16,"windowDurationMins":10080}}}}}}}}\n' "$id" ;;
     thread/start) printf '{{"id":%s,"result":{{"thread":{{"id":"thread-1","cwd":"/tmp","status":{{"type":"idle"}}}},"model":"gpt-test","cwd":"/tmp"}}}}\n' "$id" ;;
-    turn/start) printf '{{"id":%s,"result":{{"turn":{{"id":"turn-1","status":"inProgress","items":[]}}}}}}\n' "$id" ;;
+    turn/start)
+      printf '{{"id":%s,"result":{{"turn":{{"id":"turn-1","status":"inProgress","items":[]}}}}}}\n' "$id"
+      case "$line" in
+        *'"text":"ask"'*)
+          printf '%s\n' '{{"id":900,"method":"item/tool/requestUserInput","params":{{"threadId":"thread-1","turnId":"turn-1","itemId":"ask-1","isBlocking":true,"autoResolutionMs":null,"questions":[{{"id":"lib","header":"Library","question":"Which one?","isOther":true,"isSecret":false,"options":[{{"label":"chrono","description":"Dates"}}]}}]}}}}'
+          printf '%s\n' '{{"id":901,"method":"mcpServer/elicitation/request","params":{{"threadId":"thread-1","turnId":"turn-1","serverName":"github","environmentId":null,"mode":"form","_meta":null,"message":"Repo?","requestedSchema":{{"type":"object","properties":{{"repo":{{"type":"string"}}}}}}}}}}'
+          printf '%s\n' '{{"method":"serverRequest/resolved","params":{{"threadId":"thread-1","requestId":901}}}}'
+          ;;
+      esac ;;
     thread/backgroundTerminals/list) printf '{{"id":%s,"result":{{"data":[]}}}}\n' "$id" ;;
     thread/fork)
       case "$line" in
@@ -483,5 +494,171 @@ async fn stored_tasks_are_read_from_the_rollouts_of_the_session_and_its_descenda
         "{unknown:?}"
     );
     codex.shutdown().await;
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn forwarded_server_requests_are_answered_by_the_host() {
+    use crate::request::{self, Answer, Decision, Outcome};
+    use session::Event;
+
+    let folder = folder();
+    let codex = provider(&folder, None);
+    let live = codex
+        .start_session(session::Spec {
+            cwd: "/tmp".into(),
+            settings: session::Settings {
+                forward_requests: true,
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let mut events = live.subscribe();
+    live.send(crate::turn::Input::text("ask")).await.unwrap();
+    let mut requests = Vec::new();
+    let mut withdrawn = Vec::new();
+    while requests.len() < 2 || withdrawn.is_empty() {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("an event")
+            .unwrap();
+        match event {
+            Event::Request { request } => requests.push(request),
+            Event::RequestResolved {
+                id,
+                outcome: Outcome::Withdrawn,
+            } => withdrawn.push(id),
+            _ => {}
+        }
+    }
+    assert_eq!(requests[0].id, "900");
+    assert_eq!(requests[0].turn_id.as_deref(), Some("turn-1"));
+    assert!(matches!(&requests[0].kind, request::Kind::Question(q) if q.questions[0].id == "lib"));
+    assert!(
+        matches!(&requests[1].kind, request::Kind::Form(form) if form.source.as_deref() == Some("github"))
+    );
+    // Codex resolved the elicitation itself.
+    assert_eq!(withdrawn, ["901"]);
+    let late = live.respond("901", Decision::Cancel).await;
+    assert!(matches!(late, Err(Error::RequestNotFound { .. })));
+
+    let decision = Decision::Answer {
+        answers: vec![Answer::selected("lib", ["chrono"])],
+    };
+    live.respond("900", decision.clone()).await.unwrap();
+    let resolved = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(Event::RequestResolved { id, outcome }) = events.recv().await {
+                return (id, outcome);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(resolved, ("900".to_owned(), Outcome::Answered { decision }));
+    assert!(
+        eventually(|| lines(&folder, "requests").iter().any(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()
+                == serde_json::json!({ "id": 900, "result": { "answers": { "lib": { "answers": ["chrono"] } } } })
+        }))
+        .await
+    );
+    live.close().await.unwrap();
+    codex.shutdown().await;
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn without_forwarding_server_requests_are_declined() {
+    use session::Event;
+
+    let folder = folder();
+    let codex = provider(&folder, None);
+    let live = codex
+        .start_session(session::Spec {
+            cwd: "/tmp".into(),
+            settings: session::Settings::default(),
+        })
+        .await
+        .unwrap();
+    let mut events = live.subscribe();
+    live.send(crate::turn::Input::text("ask")).await.unwrap();
+    let mut declined = Vec::new();
+    while declined.len() < 2 {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("an event")
+            .unwrap();
+        assert!(!matches!(event, Event::Request { .. }), "{event:?}");
+        if let Event::RequestDeclined { method, .. } = event {
+            declined.push(method);
+        }
+    }
+    assert_eq!(
+        declined,
+        [
+            "item/tool/requestUserInput",
+            "mcpServer/elicitation/request"
+        ]
+    );
+    // Each declined request gets its own error reply.
+    let declined_ids = || {
+        lines(&folder, "requests")
+            .iter()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|reply| reply.get("error").is_some())
+            .filter_map(|reply| reply["id"].as_i64())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert!(
+        eventually(|| declined_ids().is_superset(&[900, 901].into())).await,
+        "{:?}",
+        declined_ids()
+    );
+    live.close().await.unwrap();
+    codex.shutdown().await;
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn invokes_only_catalogued_skills_with_instructions_and_images() {
+    let folder = folder();
+    let codex = provider(&folder, None);
+    let session = codex
+        .start_session(session::Spec {
+            cwd: "/tmp".into(),
+            settings: session::Settings::default(),
+        })
+        .await
+        .unwrap();
+    let skills = session.skills().await.unwrap();
+    assert_eq!(skills.len(), 1);
+    assert!(
+        session
+            .invoke_skill("/tmp/old", crate::turn::Input::text("run"))
+            .await
+            .is_err()
+    );
+    let input = crate::turn::Input::text("inspect the screenshot")
+        .with_images(vec![crate::turn::Image::new("/tmp/image.png", "image/png")]);
+    session.invoke_skill(&skills[0].id, input).await.unwrap();
+    let requests: Vec<serde_json::Value> = lines(&folder, "requests")
+        .into_iter()
+        .map(|line| serde_json::from_str(&line).unwrap())
+        .collect();
+    let turns: Vec<_> = requests
+        .iter()
+        .filter(|r| r["method"] == "turn/start")
+        .collect();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(
+        turns[0]["params"]["input"],
+        serde_json::json!([
+            {"type":"localImage","path":"/tmp/image.png"}, {"type":"text","text":"inspect the screenshot"},
+            {"type":"skill","name":"review","path":"/tmp/review/SKILL.md"}
+        ])
+    );
+    session.close().await.unwrap();
     std::fs::remove_dir_all(folder).unwrap();
 }
