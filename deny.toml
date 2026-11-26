@@ -2,7 +2,11 @@
 all-features = true
 
 [advisories]
-ignore = []
+ignore = [
+	# chrono is unmaintained (not a vulnerability). It comes only through rmcp,
+	# behind the optional `mcp` feature. Drop this once rmcp no longer uses it.
+	{ id = "RUSTSEC-2026-0543", reason = "unmaintained chrono, only via rmcp (mcp feature)" },
+]
 
 [licenses]
 allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Zlib"]
